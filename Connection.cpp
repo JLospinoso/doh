@@ -126,7 +126,12 @@ void Connection::get_user(size_t user_length) {
   boost::asio::async_read(socket, boost::asio::buffer(data, user_length), 
     [self=this->shared_from_this(), user_length](err ec, size_t length) {
       if(is_invalid("Get username", ec, user_length != length)) return;
-      if (self->user != string{ self->data.begin(), self->data.begin()+user_length }) {
+      string user_input;
+      transform(self->data.begin(), self->data.begin()+user_length, 
+                back_inserter(user_input),
+                [] (const byte b) { return static_cast<char>(b); }
+        );
+      if (self->user != user_input) {
         cerr << "[-] Bad username." << endl;
         self->send_bad_authentication();
         return;
@@ -148,7 +153,12 @@ void Connection::get_pass(size_t pass_length) {
   boost::asio::async_read(socket, boost::asio::buffer(data, pass_length), 
     [self=this->shared_from_this(), pass_length](err ec, size_t length) {
       if(is_invalid("Get password", ec, pass_length != length)) return;
-      if (self->user != string{ self->data.begin(), self->data.begin()+pass_length }) {
+      string user_input;
+      transform(self->data.begin(), self->data.begin()+pass_length, 
+                back_inserter(user_input),
+                [] (const byte b) { return static_cast<char>(b); }
+        );
+      if (self->user != user_input) {
         cerr << "[-] Bad username." << endl;
         self->send_bad_authentication();
         return;
