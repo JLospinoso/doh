@@ -69,7 +69,7 @@ private:
     get_request.append(dnssec ? "&cd=false" : "&cd=true");
     get_request.append(" HTTP/1.1\r\nHost: dns.google.com\r\n\r\n");
     tls_stream.async_write_some(boost::asio::buffer(get_request),
-      [self=this->shared_from_this()](err ec, size_t length) {
+      [self=this->shared_from_this()](boost::system::error_code ec, size_t length) {
         if(ec) {
           std::cerr << "[-] Error querying Google DNS over HTTP: " << ec << std::endl;
           return;
@@ -114,12 +114,12 @@ private:
         std::cerr << "[-] Malformed Google DNS response." << std::endl;
         return;
       }
-      auto dnssec_validated = dns_result.find("AD");
+      const auto dnssec_validated = dns_result.find("AD");
       if (dnssec_validated == dns_result.end() || !dnssec_validated->is_boolean()) {
         std::cerr << "[-] Malformed Google DNS response." << std::endl;
         return;
       }
-      if (dnssec && !dnssec_validated->operator bool()) {
+      if (dnssec && !bool{*dnssec_validated}) {
         std::cerr << "[-] DNSSEC validation failed for " << domain_name << ":" << std::endl;
         std::cerr << "\t" << response.body() << std::endl;
         return;
