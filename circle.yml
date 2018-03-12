@@ -1,0 +1,16 @@
+machine:
+  services:
+    - docker
+
+dependencies:
+  override:
+    - docker info
+
+compile:
+  override:
+    - docker build --rm=false -t jlospinoso/doh:latest .
+    - docker cp $(docker create jlospinoso/doh:latest):/doh/build/doh - > $CIRCLE_ARTIFACTS/doh.tar
+
+test:
+  override:
+    - docker run jlospinoso/doh --entrypoint ./doh_test
