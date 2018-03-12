@@ -20,12 +20,12 @@ template <typename Callable>
 struct DnsRequest : std::enable_shared_from_this<DnsRequest<Callable>> {
   DnsRequest(std::shared_ptr<DnsStore> dns_store,
         std::vector<boost::asio::ip::tcp::endpoint> google_doh,
-        boost::asio::io_context& io_context, 
-        std::string_view domain_name, 
+        boost::asio::io_context& io_context,
+        std::string_view domain_name,
         uint16_t port, bool dnssec, Callable fn)
     : dnssec{ dnssec },
       dns_store{std::move(dns_store)},
-      google_doh{std::move(google_doh)}, 
+      google_doh{std::move(google_doh)},
       get_request{ "GET /resolve?name=" }, tls_stream{ io_context, get_tls_context() },
       io_context{ io_context },
       domain_name{ domain_name },
@@ -93,7 +93,7 @@ private:
   }
   void process_response(){
     if (response.result() != boost::beast::http::status::ok) {
-        std::cerr << "[-] Bad status from Google DNS over HTTP: " 
+        std::cerr << "[-] Bad status from Google DNS over HTTP: "
           << response.result_int() << " " << response.reason() << std::endl;
         return;
     }
@@ -170,7 +170,8 @@ private:
     boost::system::error_code ec;
     ssl_context.set_default_verify_paths(ec);
     if(ec) throw std::runtime_error{ "Failed to obtain SSL context."};
-    ssl_context.set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_fail_if_no_peer_cert);
+    //TODO: Fails in Docker container?
+    //ssl_context.set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_fail_if_no_peer_cert);
   #endif
     return ssl_context;
   }
