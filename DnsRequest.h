@@ -51,7 +51,7 @@ private:
     tls_stream.async_handshake(boost::asio::ssl::stream_base::client,
       [self=this->shared_from_this()](boost::system::error_code ec) {
       if (ec) {
-        std::cerr << "[-] TLS handshake failed. Error: " << ec.message() << endl;
+        std::cerr << "[-] TLS handshake failed. Error: " << ec.message() << std::endl;
         return;
       }
       self->make_request();
