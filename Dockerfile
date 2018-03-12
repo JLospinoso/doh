@@ -9,4 +9,5 @@ RUN mkdir build
 WORKDIR build
 RUN cmake ..
 RUN make
+COPY block host ./
 ENTRYPOINT ["/doh/build/doh"]

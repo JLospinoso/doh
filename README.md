@@ -6,7 +6,7 @@
 
 [![Docker Repository on Quay](https://quay.io/repository/jlospinoso/doh/status "Docker Repository on Quay")](https://quay.io/repository/jlospinoso/doh)
 
-Usage: 
+Usage:
 
 ```
 > doh.exe --help
@@ -21,4 +21,12 @@ Usage: doh [address] [port]:
   -p [ --password ] arg          password for authentication
   --threads arg (=2)             number of threads
   --help                         produce help message
+```
+
+# Quickstart with Docker
+
+If you have Docker installed, running *doh* is easy:
+
+```
+> docker run -p 1080:1080 quay.io/jlospinoso/doh --address 0.0.0.0
 ```
