@@ -1,9 +1,9 @@
 #include "HostList.h"
-#include <filesystem>
+#include <boost/filesystem.hpp>
 #include <iostream>
 #include <fstream>
 
-namespace fs = std::experimental::filesystem; // ?
+namespace fs = boost::filesystem;
 using namespace std;
 
 using namespace std;
@@ -16,7 +16,7 @@ HostList::HostList(const string& host_dir) {
   for (auto& p : fs::directory_iterator(host_dir)) {
     cout << "[ ] Parsing block list " << p << endl;
     string line;
-    ifstream file(p.path());
+    ifstream file{ p.path().string() };
     if (file.is_open()) {
       while(getline(file, line)) {
         auto tab = line.find('\t');
