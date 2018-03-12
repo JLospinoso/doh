@@ -21,7 +21,7 @@ struct IpAddress {
     string_representation = as_string();
   }
   boost::asio::ip::tcp::endpoint as_endpoint(uint16_t port) const {
-    auto address = boost::asio::ip::address::from_string(str());
+    const auto address = boost::asio::ip::address::from_string(str());
     return boost::asio::ip::tcp::endpoint{ address, port };
   }
   auto begin() const {
@@ -50,6 +50,6 @@ private:
     return ss.str();
   }
   std::string string_representation;
-  bool is_ipv6;
+  bool is_ipv6{};
   std::array<uint8_t, 16> address;
 };

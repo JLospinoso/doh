@@ -38,7 +38,7 @@ struct DnsRequest : std::enable_shared_from_this<DnsRequest<Callable>> {
 private:
   void connect_doh() {
     boost::asio::async_connect(tls_stream.lowest_layer(), google_doh,
-      [self=shared_from_this()](boost::system::error_code ec, auto endpoint) {
+      [self=this->shared_from_this()](boost::system::error_code ec, auto endpoint) {
       if (ec) {
         std::cerr << "[-] Failed to connect to Google DNS-over-HTTP server. Error: "
           << ec.message() << std::endl;
@@ -49,7 +49,7 @@ private:
   }
   void handshake() {
     tls_stream.async_handshake(boost::asio::ssl::stream_base::client,
-      [self=shared_from_this()](boost::system::error_code ec) {
+      [self=this->shared_from_this()](boost::system::error_code ec) {
       if (ec) {
         cerr << "[-] TLS handshake failed. Error: " << ec.message() << endl;
         return;
@@ -69,7 +69,7 @@ private:
     get_request.append(dnssec ? "&cd=false" : "&cd=true");
     get_request.append(" HTTP/1.1\r\nHost: dns.google.com\r\n\r\n");
     tls_stream.async_write_some(boost::asio::buffer(get_request),
-      [self=shared_from_this()](err ec, size_t length) {
+      [self=this->shared_from_this()](err ec, size_t length) {
         if(ec) {
           std::cerr << "[-] Error querying Google DNS over HTTP: " << ec << std::endl;
           return;
@@ -83,7 +83,7 @@ private:
   }
   void read_response(){
     boost::beast::http::async_read(tls_stream, data, response,
-      [self=shared_from_this()](boost::system::error_code ec, size_t length) {
+      [self=this->shared_from_this()](boost::system::error_code ec, size_t length) {
         if(ec) {
           std::cerr << "[-] Error querying Google DNS over HTTP: " << ec << std::endl;
           return;

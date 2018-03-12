@@ -42,10 +42,10 @@ Options::Options(int argc, const char** argv)
 
 string Options::get_pretty_print() const noexcept {
   stringstream ss;
-  ss << "[ ] Serving from " << address << ":" << port << "\n";
-  ss << is_tls_only() ? "[ ] Deny all non-TLS traffic (TCP :443)\n" : "[ ] All TCP traffic permitted\n";
-  ss << is_dnssec() ? "[ ] Deny all non-DNSSEC responses\n" : "[ ] Allow non-DNSSEC responses\n";
-  ss << "[ ] Threads: " << threads;
+  ss << "[ ] Serving from " << address << ":" << port << "\n"
+     << (is_tls_only() ? "[ ] Deny all non-TLS traffic (TCP :443)\n" : "[ ] All TCP traffic permitted\n")
+     << (is_dnssec() ? "[ ] Deny all non-DNSSEC responses\n" : "[ ] Allow non-DNSSEC responses\n")
+     << "[ ] Threads: " << threads;
   return ss.str();
 }
 

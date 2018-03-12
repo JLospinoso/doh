@@ -8,7 +8,7 @@ using tcp = boost::asio::ip::tcp;
 DnsStore::DnsStore() : rw_mutex{  }{ }
 
 void DnsStore::place(const string& domain, const vector<size_t>& ttl, const vector<tcp::endpoint>& results) {
-  auto now = chrono::system_clock::now();
+  const auto now = chrono::system_clock::now();
   if (ttl.size() != results.size()) throw logic_error{ "TTL length must be same as results length." };
   lock_guard<mutex> lock{ rw_mutex };
   for(size_t index{}; index<ttl.size(); index++) {
@@ -18,10 +18,10 @@ void DnsStore::place(const string& domain, const vector<size_t>& ttl, const vect
 
 optional<vector<tcp::endpoint>> DnsStore::get(const string& domain) {
   lock_guard<mutex> lock{ rw_mutex };
-  auto now = chrono::system_clock::now();
-  auto cache_range = store.equal_range(domain);
+  const auto now = chrono::system_clock::now();
+  const auto cache_range = store.equal_range(domain);
   auto iter = cache_range.first;
-  auto end = cache_range.second;
+  const auto end = cache_range.second;
   vector<tcp::endpoint> result;
   bool stale{};
   while (iter != end) {
@@ -32,7 +32,7 @@ optional<vector<tcp::endpoint>> DnsStore::get(const string& domain) {
     } else {
       stale = true;
     }
-    iter++;
+    ++iter;
   }
   if (stale) store.erase(domain);
   return result.empty() ? optional<vector<tcp::endpoint>>{} : result;

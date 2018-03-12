@@ -2,7 +2,6 @@
 #include <iostream>
 #include "Connection.h"
 #include "DnsResolver.h"
-#include <thread>
 
 using namespace std;
 using tcp = boost::asio::ip::tcp;
@@ -10,10 +9,10 @@ using tcp = boost::asio::ip::tcp;
 Server::Server(boost::asio::io_context& io_context, const string& address, 
   unsigned short port, shared_ptr<DnsResolver> dns_resolver,
   string user, string password, bool tls_only)
-  : acceptor{ io_context, tcp::endpoint{ boost::asio::ip::address::from_string(address) , port } },
-    io_context{ io_context },
-    dns_resolver{ move(dns_resolver) },
-    tls_only { tls_only }, user{ move(user) }, password{ move(password) } {
+  : io_context{ io_context },
+    tls_only { tls_only },
+    user{ move(user) },
+    password{ move(password) }, dns_resolver{ move(dns_resolver) }, acceptor{ io_context, tcp::endpoint{ boost::asio::ip::address::from_string(address) , port } } {
   do_accept();
 }
 

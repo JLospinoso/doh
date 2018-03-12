@@ -11,12 +11,12 @@
 
 struct DnsResolver : std::enable_shared_from_this<DnsResolver> {
   DnsResolver(boost::asio::io_context& io_context, const BlockList& block_list, const HostList& host_list, bool dnssec) 
-    : dns_store{ std::make_shared<DnsStore>() },
-    io_context{ io_context }, 
-    resolver{ io_context },
-    block_list{ block_list },
+    : dnssec{ dnssec },
+    block_list{ block_list }, 
     host_list{ host_list },
-    dnssec{ dnssec }{ }
+    dns_store{ std::make_shared<DnsStore>() },
+    resolver{ io_context },
+    io_context{ io_context }{ }
 
   template <typename Callable>
   void resolve_async(const std::string& domain_name, uint16_t port, Callable fn) {
@@ -25,7 +25,7 @@ struct DnsResolver : std::enable_shared_from_this<DnsResolver> {
       return;
     }
     resolver.async_resolve(domain_name, std::to_string(port), boost::asio::ip::tcp::resolver::numeric_service,
-      [self=shared_from_this(), fn, domain_name] (boost::system::error_code ec, const auto& endpoints) {
+      [self=this->shared_from_this(), fn, domain_name] (boost::system::error_code ec, const auto& endpoints) {
         std::vector<boost::asio::ip::tcp::endpoint> result(endpoints.begin(), endpoints.end());
         //TODO: Default TTLs on Boost resolution? 60 seconds?
         self->dns_store->place(domain_name, std::vector<size_t>(result.size(), 60), result);
@@ -40,7 +40,7 @@ struct DnsResolver : std::enable_shared_from_this<DnsResolver> {
       return;
     }
     resolve_async("dns.google.com", 443,
-      [self=shared_from_this(), domain_name, port, fn](auto&& google_doh){
+      [self=this->shared_from_this(), domain_name, port, fn](auto&& google_doh){
         std::make_shared<DnsRequest<Callable>>(
           self->dns_store,  
           std::move(google_doh), 
@@ -52,7 +52,7 @@ struct DnsResolver : std::enable_shared_from_this<DnsResolver> {
     });
   };
 private:
-  std::optional<std::vector<boost::asio::ip::tcp::endpoint>> check(const std::string& domain_name, uint16_t port) {
+  std::optional<std::vector<boost::asio::ip::tcp::endpoint>> check(const std::string& domain_name, uint16_t port) const {
     const auto& list = block_list.list();
     if (list.find(domain_name) != list.end()) {
       std::cerr << "[*] Blocking domain " << domain_name << std::endl;
