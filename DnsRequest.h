@@ -9,41 +9,12 @@
 #include "DnsStore.h"
 #include <algorithm>
 #include <random>
+#include <utility>
 
 #ifdef WIN32
 #pragma comment(lib, "CRYPT32.LIB")
 #include <wincrypt.h>
 #endif
-
-namespace {
-  boost::asio::ssl::context make_ssl_context() {
-    boost::asio::ssl::context ssl_context{ boost::asio::ssl::context::sslv23 };
-#ifdef WIN32
-    HCERTSTORE hStore = CertOpenSystemStore(0, "ROOT");
-    if (hStore == NULL) throw std::runtime_error{ "Unable to open sytem certificate store." };
-    X509_STORE *store = X509_STORE_new();
-    PCCERT_CONTEXT pContext = NULL;
-    while ((pContext = CertEnumCertificatesInStore(hStore, pContext)) != NULL) {
-        X509 *x509 = d2i_X509(NULL,
-                              (const unsigned char **)&pContext->pbCertEncoded,
-                              pContext->cbCertEncoded);
-        if(x509 != NULL) {
-            X509_STORE_add_cert(store, x509);
-            X509_free(x509);
-        }
-    }
-    CertFreeCertificateContext(pContext);
-    CertCloseStore(hStore, 0);
-    SSL_CTX_set_cert_store(ssl_context.native_handle(), store);
-#else
-    boost::system::error_code ec;
-    ssl_context.set_default_verify_paths(ec);
-    if(ec) throw std::runtime_error{ "Failed to obtain SSL context."};
-    ssl_context.set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_fail_if_no_peer_cert);
-#endif
-    return ssl_context;
-  }
-}
 
 template <typename Callable>
 struct DnsRequest : std::enable_shared_from_this<DnsRequest<Callable>> {
@@ -52,14 +23,14 @@ struct DnsRequest : std::enable_shared_from_this<DnsRequest<Callable>> {
         boost::asio::io_context& io_context, 
         std::string_view domain_name, 
         uint16_t port, bool dnssec, Callable fn)
-    : dns_store{ dns_store },
-      google_doh{ google_doh },
-      domain_name{ domain_name }, 
-      port{ port }, fn{ fn },
+    : dnssec{ dnssec },
+      dns_store{std::move(dns_store)},
+      google_doh{std::move(google_doh)}, 
+      get_request{ "GET /resolve?name=" }, tls_stream{ io_context, get_tls_context() },
       io_context{ io_context },
-      dnssec{ dnssec },
-      tls_stream{ io_context, make_ssl_context() },
-    get_request{ "GET /resolve?name=" } {
+      domain_name{ domain_name },
+      port{ port },
+    fn{std::move(fn)} {
   }
   void service() {
     connect_doh();
@@ -69,8 +40,8 @@ private:
     boost::asio::async_connect(tls_stream.lowest_layer(), google_doh,
       [self=shared_from_this()](boost::system::error_code ec, auto endpoint) {
       if (ec) {
-        cerr << "[-] Failed to connect to Google DNS-over-HTTP server. Error: "
-          << ec.message() << endl;
+        std::cerr << "[-] Failed to connect to Google DNS-over-HTTP server. Error: "
+          << ec.message() << std::endl;
         return;
       }
       self->handshake();
@@ -87,11 +58,11 @@ private:
     });
   }
   void make_request(){
-    thread_local random_device rand_dev;
-    thread_local mt19937 generator{ rand_dev() };
-    thread_local uniform_int_distribution<unsigned short> unif_dist{ 97, 122 };
-    string junk;
-    generate_n(back_inserter(junk), 255-domain_name.size(), [&] { return static_cast<char>(unif_dist(generator)); } );
+    thread_local std::random_device rand_dev;
+    thread_local std::mt19937 generator{ rand_dev() };
+    thread_local std::uniform_int_distribution<unsigned short> unif_dist{ 97, 122 };
+    std::string junk;
+    generate_n(std::back_inserter(junk), 255-domain_name.size(), [&] { return static_cast<char>(unif_dist(generator)); } );
     get_request.append(domain_name);
     get_request.append("&random_padding=");
     get_request.append(junk);
@@ -128,7 +99,7 @@ private:
     }
     try {
       const auto dns_result = nlohmann::json::parse(response.body());
-      auto status = dns_result.find("Status");
+      const auto status = dns_result.find("Status");
       if (status == dns_result.end()) {
         std::cerr << "[-] Malformed Google DNS response." << std::endl;
         return;
@@ -138,7 +109,7 @@ private:
       }
       std::vector<boost::asio::ip::tcp::endpoint> result;
       std::vector<size_t> ttls;
-      auto answer = dns_result.find("Answer");
+      const auto answer = dns_result.find("Answer");
       if (answer == dns_result.end()) {
         std::cerr << "[-] Malformed Google DNS response." << std::endl;
         return;
@@ -153,13 +124,13 @@ private:
         std::cerr << "\t" << response.body() << std::endl;
         return;
       }
-      for(const auto& answer : *answer) {
-        auto type = answer.find("type");
-        auto data = answer.find("data");
-        auto ttl = answer.find("TTL");
-        if (type == answer.end() || !type->is_number()
-          || data == answer.end() || !data->is_string()
-          || ttl == answer.end() || !ttl->is_number()) {
+      for(const auto& element : *answer) {
+        const auto type = element.find("type");
+        const auto data = element.find("data");
+        const auto ttl = element.find("TTL");
+        if (type == element.end() || !type->is_number()
+          || data == element.end() || !data->is_string()
+          || ttl == element.end() || !ttl->is_number()) {
           std::cerr << "[-] Malformed Google DNS response." << std::endl;
           return;
         }
@@ -175,6 +146,37 @@ private:
     } catch(...) {
       std::cerr << "[-] Error parsing Google DNS result." << std::endl;
     }
+  }
+  static boost::asio::ssl::context make_tls_context() {
+    boost::asio::ssl::context ssl_context{ boost::asio::ssl::context::sslv23 };
+  #ifdef WIN32
+    const auto win_store = CertOpenSystemStore(0, "ROOT");
+    if (win_store == nullptr) throw std::runtime_error{ "Unable to open sytem certificate store." };
+    auto* openssl_store = X509_STORE_new();
+    PCCERT_CONTEXT cert_context{};
+    while ((cert_context = CertEnumCertificatesInStore(win_store, cert_context)) != nullptr) {
+        auto* x509 = d2i_X509(nullptr,
+                              const_cast<const unsigned char **>(&cert_context->pbCertEncoded),
+                              cert_context->cbCertEncoded);
+        if(x509 != nullptr) {
+            X509_STORE_add_cert(openssl_store, x509);
+            X509_free(x509);
+        }
+    }
+    CertFreeCertificateContext(cert_context);
+    CertCloseStore(win_store, 0);
+    SSL_CTX_set_cert_store(ssl_context.native_handle(), openssl_store);
+  #else
+    boost::system::error_code ec;
+    ssl_context.set_default_verify_paths(ec);
+    if(ec) throw std::runtime_error{ "Failed to obtain SSL context."};
+    ssl_context.set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_fail_if_no_peer_cert);
+  #endif
+    return ssl_context;
+  }
+  static boost::asio::ssl::context& get_tls_context() {
+    thread_local boost::asio::ssl::context context = make_tls_context();
+    return context;
   }
   bool dnssec;
   std::shared_ptr<DnsStore> dns_store;
