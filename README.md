@@ -96,7 +96,7 @@ cmake ..
 make
 ```
 
-# Building *doh on Docker
+# Building *doh* on Docker
 
 Prerequisites:
 
