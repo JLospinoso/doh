@@ -11,14 +11,14 @@
 #include "Store.h"
 
 struct DnsResolver : std::enable_shared_from_this<DnsResolver> {
-  DnsResolver(Store& store, 
+  DnsResolver(Store& store, std::shared_ptr<DnsStore> dns_store,
     boost::asio::io_context& io_context, const BlockList& block_list, 
     const HostList& host_list, bool dnssec) 
     : store{ store },
     dnssec{ dnssec },
     block_list{ block_list }, 
     host_list{ host_list },
-    dns_store{ std::make_shared<DnsStore>() },
+    dns_store{ dns_store },
     resolver{ io_context },
     io_context{ io_context }{ }
 

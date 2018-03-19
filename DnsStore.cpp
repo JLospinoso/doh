@@ -4,15 +4,13 @@
 using namespace std;
 using tcp = boost::asio::ip::tcp;
 
-
-DnsStore::DnsStore() : rw_mutex{  }{ }
-
 void DnsStore::place(const string& domain, const vector<size_t>& ttl, const vector<tcp::endpoint>& results) {
   const auto now = chrono::system_clock::now();
   if (ttl.size() != results.size()) throw logic_error{ "TTL length must be same as results length." };
   lock_guard<mutex> lock{ rw_mutex };
   for(size_t index{}; index<ttl.size(); index++) {
     store.emplace(domain, make_pair(now + chrono::seconds(ttl[index]), results[index]));
+    reverse_store.emplace(results[index].address().to_string(), domain);
   }
 }
 
@@ -36,4 +34,10 @@ optional<vector<tcp::endpoint>> DnsStore::get(const string& domain) {
   }
   if (stale) store.erase(domain);
   return result.empty() ? optional<vector<tcp::endpoint>>{} : result;
+}
+
+optional<string> DnsStore::reverse(const std::string& ip) {
+  lock_guard<mutex> lock{ rw_mutex };
+  const auto result = reverse_store.find(ip);
+  return result == reverse_store.end() ? optional<string>{} : result->second;
 }

@@ -19,13 +19,14 @@ int main(int argc, const char** argv) {
       return EXIT_SUCCESS;
     }
     cout << options.get_pretty_print() << endl;
-    Store store;
     BlockList block_list{ options.get_block_dir() };
     HostList host_list{ options.get_host_dir() };
     boost::asio::io_context io_context;
+    auto dns_store = std::make_shared<DnsStore>();
+    Store store{ dns_store };
     Server server{ store,
       io_context, options.get_address(), options.get_port(), 
-      make_shared<DnsResolver>(store, io_context, block_list, host_list, options.is_dnssec()),
+      make_shared<DnsResolver>(store, dns_store, io_context, block_list, host_list, options.is_dnssec()),
       options.get_user(), options.get_password(),
       options.is_tls_only() 
     };
