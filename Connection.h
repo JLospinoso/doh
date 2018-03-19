@@ -7,11 +7,13 @@
 #include <vector>
 #include "DnsResolver.h"
 #include "IpAddress.h"
+#include "Store.h"
 
 constexpr size_t buffer_size = 1024 * 1024;
 
 struct Connection : std::enable_shared_from_this<Connection> {
-  Connection(boost::asio::io_context& io_context, boost::asio::ip::tcp::socket socket, 
+  Connection(Store& store,
+    boost::asio::io_context& io_context, boost::asio::ip::tcp::socket socket, 
     std::shared_ptr<DnsResolver> dns_resolver, std::string_view user, 
     std::string_view password, bool https_only);
   void start();
@@ -40,7 +42,7 @@ private:
   void send_failed_upstream();
   void service_client();
   void service_upstream();
-  void log_request() const;
+  //void log_request() const;
   void connect();
   const bool authenticate;
   const bool https_only;
@@ -52,4 +54,5 @@ private:
   std::array<std::byte, buffer_size> data, upstream_data;
   std::shared_ptr<DnsResolver> dns_resolver;
   std::vector<boost::asio::ip::tcp::endpoint> endpoints;
+  Store& store;
 };

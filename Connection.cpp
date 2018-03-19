@@ -32,16 +32,21 @@ namespace {
   }
 }
 
-Connection::Connection(boost::asio::io_context& io_context, 
+Connection::Connection(Store& store, boost::asio::io_context& io_context, 
   tcp::socket socket, std::shared_ptr<DnsResolver> dns_resolver,
   string_view user, string_view password, bool https_only) 
-  : authenticate{ !user.empty() || !password.empty() }, https_only{ https_only },
+  : store{ store },
+    authenticate{ !user.empty() || !password.empty() }, https_only{ https_only },
     user { user },
     password{ password }, socket{ move(socket) }, 
     upstream_socket { io_context },
     dns_resolver{ move(dns_resolver) }{ }
 
-void Connection::start() { get_client_version(); }
+void Connection::start() {
+  const auto remote_ep = socket.remote_endpoint();
+  store.register_connection(remote_ep.address().to_string(), remote_ep.port());
+  get_client_version();
+}
 
 void Connection::get_client_version() {
   boost::asio::async_read(socket, boost::asio::buffer(data, 1), 
@@ -238,7 +243,7 @@ void Connection::get_connection_request() {
       }
   });
 }
-
+/*
 void Connection::log_request() const {
   cout << "[ ] Request: ";
   if(!domain.empty()) {
@@ -248,7 +253,7 @@ void Connection::log_request() const {
   }
   cout << ":" << port << endl;
 }
-
+*/
 void Connection::get_ipv4_request() {
   boost::asio::async_read(socket, boost::asio::buffer(data, 4), 
     [self=this->shared_from_this()](err ec, size_t length) {
@@ -293,7 +298,6 @@ void Connection::get_port() {
         *reinterpret_cast<const uint8_t*>(&self->data[0])
       };
       self->port = *reinterpret_cast<uint16_t*>(port_bytes.data());
-      self->log_request();
       if (!self->domain.empty()) {
         self->resolve_domain();
       } else {
@@ -304,6 +308,12 @@ void Connection::get_port() {
 }
 
 void Connection::resolve_domain() {
+  const auto remote_ep = socket.remote_endpoint();
+  store.register_connection(remote_ep.address().to_string(), remote_ep.port());
+  store.register_dnsquery(
+    remote_ep.address().to_string(), remote_ep.port(),
+    domain, port
+  );
   dns_resolver->resolve_over_http_async(domain, port,
     [self=this->shared_from_this()](auto result) {
       if (result.empty()) {
@@ -322,6 +332,12 @@ void Connection::connect() {
     cerr << "[-] Blocking non-HTTPS destination" << endl;
     return;
   }
+  const auto remote_ep = socket.remote_endpoint();
+  store.register_connection(remote_ep.address().to_string(), remote_ep.port());
+  store.register_request(
+    remote_ep.address().to_string(), remote_ep.port(),
+    ip_address.str(), port
+  );
   boost::asio::async_connect(upstream_socket, endpoints,
     [self=this->shared_from_this()](err ec, tcp::endpoint endpoint) {
       if (ec) {
@@ -363,6 +379,13 @@ void Connection::service_client() {
       self->upstream_socket.async_write_some(buffer(self->data, length),
         [self=self->shared_from_this()](err ec, size_t length) {
           if(ec) return;
+          const auto client_ep = self->socket.remote_endpoint();
+          const auto upstream_ep = self->upstream_socket.remote_endpoint();
+          self->store.register_netflow(
+            upstream_ep.address().to_string(), upstream_ep.port(),
+            client_ep.address().to_string(), client_ep.port(),
+            length
+          );
           self->service_client();
     });
   });
@@ -375,6 +398,13 @@ void Connection::service_upstream() {
       self->socket.async_write_some(buffer(self->upstream_data, length),
         [self=self->shared_from_this()](err ec, size_t length) {
           if(ec) return;
+          const auto upstream_ep = self->upstream_socket.remote_endpoint();
+          const auto client_ep = self->socket.remote_endpoint();
+          self->store.register_netflow(
+            client_ep.address().to_string(), client_ep.port(),
+            upstream_ep.address().to_string(), upstream_ep.port(),
+            length
+          );
           self->service_upstream();
     });
   });

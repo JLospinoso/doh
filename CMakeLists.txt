@@ -44,6 +44,7 @@ add_library(dohlib
   IpAddress.h
   json.hpp
   Server.h Server.cpp
+  Store.h Store.cpp
   Options.cpp Options.h
   sqlite3.h
   sqlite3ext.h)

@@ -8,10 +8,14 @@
 #include "DnsStore.h"
 #include "BlockList.h"
 #include "HostList.h"
+#include "Store.h"
 
 struct DnsResolver : std::enable_shared_from_this<DnsResolver> {
-  DnsResolver(boost::asio::io_context& io_context, const BlockList& block_list, const HostList& host_list, bool dnssec) 
-    : dnssec{ dnssec },
+  DnsResolver(Store& store, 
+    boost::asio::io_context& io_context, const BlockList& block_list, 
+    const HostList& host_list, bool dnssec) 
+    : store{ store },
+    dnssec{ dnssec },
     block_list{ block_list }, 
     host_list{ host_list },
     dns_store{ std::make_shared<DnsStore>() },
@@ -65,6 +69,7 @@ private:
     }
     return dns_store->get(domain_name);
   }
+  Store& store;
   bool dnssec;
   const BlockList& block_list;
   const HostList& host_list;

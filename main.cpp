@@ -6,6 +6,7 @@
 #include "Server.h"
 #include "BlockList.h"
 #include "HostList.h"
+#include "Store.h"
 
 using namespace std;
 
@@ -18,12 +19,13 @@ int main(int argc, const char** argv) {
       return EXIT_SUCCESS;
     }
     cout << options.get_pretty_print() << endl;
+    Store store;
     BlockList block_list{ options.get_block_dir() };
     HostList host_list{ options.get_host_dir() };
     boost::asio::io_context io_context;
-    Server server{
+    Server server{ store,
       io_context, options.get_address(), options.get_port(), 
-      make_shared<DnsResolver>(io_context, block_list, host_list, options.is_dnssec()),
+      make_shared<DnsResolver>(store, io_context, block_list, host_list, options.is_dnssec()),
       options.get_user(), options.get_password(),
       options.is_tls_only() 
     };
