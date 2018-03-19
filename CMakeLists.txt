@@ -30,6 +30,10 @@ endif()
 add_definitions(-D_WIN32_WINNT=0x0501)
 
 # Artifacts
+add_library(sqlite 
+  shell.c 
+  sqlite3.h sqlite3.c
+  sqlite3ext.h)
 add_library(dohlib 
   BlockList.h BlockList.cpp
   Connection.h Connection.cpp
@@ -40,7 +44,9 @@ add_library(dohlib
   IpAddress.h
   json.hpp
   Server.h Server.cpp
-  Options.cpp Options.h)
+  Options.cpp Options.h
+  sqlite3.h
+  sqlite3ext.h)
 target_compile_definitions(dohlib PUBLIC 
 BOOST_COROUTINES_NO_DEPRECATION_WARNING=1 
 _SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING
@@ -51,5 +57,5 @@ add_executable(doh main.cpp)
 add_executable(doh_test test_main.cpp OptionsTest.cpp)
 
 # Linkage
-target_link_libraries(doh dohlib ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-target_link_libraries(doh_test dohlib ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(doh dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(doh_test dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
