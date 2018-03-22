@@ -26,4 +26,4 @@ BlockList::BlockList(const string& block_dir) {
   cout << "[+] Parsed " << block_list.size() << " blocked domains." << endl;
 }
 
-const std::set<std::string>& BlockList::list() const { return block_list; }
+const std::unordered_set<std::string>& BlockList::list() const { return block_list; }
