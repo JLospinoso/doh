@@ -6,5 +6,5 @@ struct BlockList {
   explicit BlockList(const std::string& block_dir);
   const std::set<std::string>& list() const;
 private:
-  std::set<std::string> block_list;
+  std::unordered_set<std::string> block_list;
 };
