@@ -1,10 +1,10 @@
 #pragma once
 #include <string>
-#include <set>
+#include <unordered_set>
 
 struct BlockList {
   explicit BlockList(const std::string& block_dir);
-  const std::set<std::string>& list() const;
+  const std::unordered_set<std::string>& list() const;
 private:
   std::unordered_set<std::string> block_list;
 };
