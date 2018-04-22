@@ -19,7 +19,7 @@ namespace {
 
 TEST_CASE("Options") {
   SECTION("throws when given") {
-    SECTION("three positionals") { REQUIRE_THROWS(opt("0.0.0.0 1080 third_wheel")); }
+    SECTION("four positionals") { REQUIRE_THROWS(opt("0.0.0.0 1080 8000 fourth_wheel")); }
     SECTION("zero threads") { REQUIRE_THROWS(opt("--threads 0")); }
   }
   SECTION("When given help") {

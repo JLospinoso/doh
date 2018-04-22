@@ -1,4 +1,4 @@
-#include "Server.h"
+#include "SocksServer.h"
 #include <iostream>
 #include "Connection.h"
 #include "DnsResolver.h"
@@ -6,7 +6,7 @@
 using namespace std;
 using tcp = boost::asio::ip::tcp;
 
-Server::Server(Store& store,
+SocksServer::SocksServer(Store& store,
   boost::asio::io_context& io_context, const string& address, 
   unsigned short port, shared_ptr<DnsResolver> dns_resolver,
   string user, string password, bool tls_only)
@@ -18,7 +18,7 @@ Server::Server(Store& store,
   do_accept();
 }
 
-void Server::do_accept() {
+void SocksServer::do_accept() {
   acceptor.async_accept(
     [this](boost::system::error_code ec, tcp::socket socket) {
       if (ec) {

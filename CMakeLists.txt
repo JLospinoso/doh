@@ -4,6 +4,15 @@ set(CMAKE_CXX_STANDARD 17)
 
 find_package(Threads)
 
+IF(WIN32)
+ADD_DEFINITIONS(/bigobj)
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
+SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /bigobj")
+SET(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /bigobj")
+SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /bigobj")
+SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /bigobj")
+ENDIF(WIN32)
+
 # OpenSSL stuff here
 find_package(OpenSSL)
 
@@ -43,16 +52,18 @@ add_library(dohlib
   HostList.h HostList.cpp
   IpAddress.h
   json.hpp
-  Server.h Server.cpp
+  SocksServer.h SocksServer.cpp
   Store.h Store.cpp
   Options.cpp Options.h
+  WebServer.h WebServer.cpp 
+  index.hpp ssl_stream.hpp root_certificates.hpp detect_ssl.hpp server_certificate.hpp ssl_stream.hpp
   sqlite3.h
   sqlite3ext.h)
 target_compile_definitions(dohlib PUBLIC 
 BOOST_COROUTINES_NO_DEPRECATION_WARNING=1 
-_SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING
-_SILENCE_CXX17_RESULT_OF_DEPRECATION_WARNING
-BOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE)
+BOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE=1
+_SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING=1
+_SILENCE_CXX17_RESULT_OF_DEPRECATION_WARNING=1)
 
 add_executable(doh main.cpp)
 add_executable(doh_test test_main.cpp OptionsTest.cpp)

@@ -7,8 +7,8 @@
 #include "HostList.h"
 #include "Store.h"
 
-struct Server {
-  Server(Store& store,
+struct SocksServer {
+  SocksServer(Store& store,
     boost::asio::io_context& io_context, 
     const std::string& address, uint16_t port,
     std::shared_ptr<DnsResolver> dns_resolver,

@@ -15,13 +15,15 @@ struct Options {
   const std::string& get_password() const noexcept;
   const std::string& get_block_dir() const noexcept;
   const std::string& get_host_dir() const noexcept;
+  const std::string& get_db_path() const noexcept;
   size_t get_threads() const noexcept;
-  uint16_t get_port() const noexcept;
+  uint16_t get_socks_port() const noexcept;
+  uint16_t get_web_port() const noexcept;
 private:
   size_t threads;
-  uint16_t port;
+  uint16_t socks_port, web_port;
   bool help, tls_only, dnssec;
-  std::string address, help_str, block_dir, host_dir, user, password;
+  std::string address, help_str, block_dir, host_dir, user, password, db_path;
 };
 
 struct OptionsException : std::runtime_error {

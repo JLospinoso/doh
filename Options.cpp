@@ -9,12 +9,14 @@ using namespace boost::program_options;
 
 Options::Options(int argc, const char** argv)
   : help{}, tls_only{} {
-  options_description description("Usage: doh [address] [port]");
+  options_description description("Usage: doh [address] [socksport] [webport]");
   description.add_options()
     ("address", value<string>(&address)->default_value("127.0.0.1"), "address (e.g. 0.0.0.0)")
-    ("port", value<uint16_t>(&port)->default_value(1080), "port (e.g.1080)")
+    ("socksport", value<uint16_t>(&socks_port)->default_value(1080), "port (e.g. 1080)")
+    ("webport", value<uint16_t>(&web_port)->default_value(8000), "port (e.g. 8000)")
     ("blockdir,b", value<string>(&block_dir)->default_value("block"), "directory containing blocked domains")
     ("hostdir,h", value<string>(&host_dir)->default_value("host"), "directory containing hard-coded hosts")
+    ("dbpath,b", value<string>(&db_path)->default_value(":memory:"), "path to store doh database. Defaults to in-memory only.")
     ("tls_only,t", bool_switch(&tls_only), "force TLS only")
     ("dnsssec,d", bool_switch(&dnssec), "force DNSSEC")
     ("user,u", value<string>(&user)->default_value(""), "username for authentication")
@@ -23,7 +25,8 @@ Options::Options(int argc, const char** argv)
     ("help", "produce help message");
   positional_options_description pos_description;
   pos_description.add("address", 1);
-  pos_description.add("port", 1);
+  pos_description.add("socksport", 1);
+  pos_description.add("webport", 1);
 
   variables_map vm;
   store(command_line_parser(argc, argv)
@@ -42,7 +45,8 @@ Options::Options(int argc, const char** argv)
 
 string Options::get_pretty_print() const noexcept {
   stringstream ss;
-  ss << "[ ] Serving from " << address << ":" << port << "\n"
+  ss << "[ ] Serving SOCKS5 from " << address << ":" << socks_port << "\n"
+     << "[ ] Serving portal from " << address << ":" << web_port << "\n"
      << (is_tls_only() ? "[ ] Deny all non-TLS traffic (TCP :443)\n" : "[ ] All TCP traffic permitted\n")
      << (is_dnssec() ? "[ ] Deny all non-DNSSEC responses\n" : "[ ] Allow non-DNSSEC responses\n")
      << "[ ] Threads: " << threads;
@@ -67,6 +71,10 @@ const string& Options::get_user() const noexcept { return user; }
 
 const string& Options::get_password() const noexcept { return password; }
 
+const string& Options::get_db_path() const noexcept { return db_path; }
+
 size_t Options::get_threads() const noexcept { return threads; }
 
-uint16_t Options::get_port() const noexcept { return port; }
+uint16_t Options::get_socks_port() const noexcept { return socks_port; }
+
+uint16_t Options::get_web_port() const noexcept { return web_port; }
