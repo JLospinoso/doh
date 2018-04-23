@@ -5,12 +5,15 @@ set(CMAKE_CXX_STANDARD 17)
 find_package(Threads)
 
 IF(WIN32)
-ADD_DEFINITIONS(/bigobj)
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
-SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /bigobj")
-SET(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /bigobj")
-SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /bigobj")
-SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /bigobj")
+  ADD_DEFINITIONS(/bigobj)
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
+  SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /bigobj")
+  SET(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /bigobj")
+  SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /bigobj")
+  SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /bigobj")
+  set(LIBM_LIBS "")
+ELSE()
+  set(LIBM_LIBS m)
 ENDIF(WIN32)
 
 # OpenSSL stuff here
@@ -39,11 +42,11 @@ endif()
 add_definitions(-D_WIN32_WINNT=0x0501)
 
 # Artifacts
-add_library(sqlite 
-  shell.c 
+add_library(sqlite
+  shell.c
   sqlite3.h sqlite3.c
   sqlite3ext.h)
-add_library(dohlib 
+add_library(dohlib
   BlockList.h BlockList.cpp
   Connection.h Connection.cpp
   DnsResolver.h
@@ -55,12 +58,12 @@ add_library(dohlib
   SocksServer.h SocksServer.cpp
   Store.h Store.cpp
   Options.cpp Options.h
-  WebServer.h WebServer.cpp 
+  WebServer.h WebServer.cpp
   index.hpp ssl_stream.hpp root_certificates.hpp detect_ssl.hpp server_certificate.hpp ssl_stream.hpp
   sqlite3.h
   sqlite3ext.h)
-target_compile_definitions(dohlib PUBLIC 
-BOOST_COROUTINES_NO_DEPRECATION_WARNING=1 
+target_compile_definitions(dohlib PUBLIC
+BOOST_COROUTINES_NO_DEPRECATION_WARNING=1
 BOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE=1
 _SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING=1
 _SILENCE_CXX17_RESULT_OF_DEPRECATION_WARNING=1)
@@ -69,5 +72,5 @@ add_executable(doh main.cpp)
 add_executable(doh_test test_main.cpp OptionsTest.cpp)
 
 # Linkage
-target_link_libraries(doh dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
-target_link_libraries(doh_test dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(doh dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${LIBM_LIBS})
+target_link_libraries(doh_test dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${LIBM_LIBS})
