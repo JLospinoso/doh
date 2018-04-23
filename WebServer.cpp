@@ -32,89 +32,6 @@ namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
 namespace http = boost::beast::http;            // from <boost/beast/http.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
 
-// This function produces an HTTP response for the given
-// request. The type of the response object depends on the
-// contents of the request, so the interface requires the
-// caller to pass a generic lambda for receiving the response.
-template<
-    class Body, class Allocator,
-    class Send>
-void
-handle_request(
-    http::request<Body, http::basic_fields<Allocator>>&& req,
-    Send&& send)
-{
-    // Returns a bad request response
-    auto const bad_request =
-    [&req](boost::beast::string_view why)
-    {
-        http::response<http::string_body> res{http::status::bad_request, req.version()};
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = why.to_string();
-        res.prepare_payload();
-        return res;
-    };
-
-    // Returns a not found response
-    auto const not_found =
-    [&req](boost::beast::string_view target)
-    {
-        http::response<http::string_body> res{http::status::not_found, req.version()};
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = "The resource '" + target.to_string() + "' was not found.";
-        res.prepare_payload();
-        return res;
-    };
-
-    // Returns a server error response
-    auto const server_error =
-    [&req](boost::beast::string_view what)
-    {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = "An error occurred: '" + what.to_string() + "'";
-        res.prepare_payload();
-        return res;
-    };
-
-    // Make sure we can handle the method
-    if( req.method() != http::verb::get &&
-        req.method() != http::verb::head)
-        return send(bad_request("Unknown HTTP-method"));
-
-    if (req.target() != "/") return send(bad_request("Illegal request-target"));
-
-    // Respond to HEAD request
-    if(req.method() == http::verb::head) {
-        http::response<http::empty_body> res{http::status::ok, req.version()};
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
-        res.content_length(index_body.size());
-        res.keep_alive(req.keep_alive());
-        return send(std::move(res));
-    }
-    //TODO: Do stuff with store
-  
-    // Respond to GET request
-    http::response<http::string_body> res{
-        std::piecewise_construct,
-        std::make_tuple(index_body),
-        std::make_tuple(http::status::ok, req.version())};
-    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(http::field::content_type, "text/html");
-    res.content_length(index_body.size());
-    res.keep_alive(req.keep_alive());
-    return send(std::move(res));
-}
-
-//------------------------------------------------------------------------------
-
 // Report a failure
 void
 fail(boost::system::error_code ec, char const* what)
@@ -655,26 +572,56 @@ class http_session
                 (*items_.front())();
         }
     };
-
+    Store& store;
     http::request<http::string_body> req_;
     queue queue_;
 
+    http::response<http::string_body> bad_request(boost::beast::string_view why) {
+      http::response<http::string_body> res{ http::status::bad_request, req_.version() };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.keep_alive(req_.keep_alive());
+      res.body() = why.to_string();
+      res.prepare_payload();
+      return res;
+    };
+
+    http::response<http::string_body> not_found(boost::beast::string_view target) {
+      http::response<http::string_body> res{ http::status::not_found, req_.version() };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.keep_alive(req_.keep_alive());
+      res.body() = "The resource '" + target.to_string() + "' was not found.";
+      res.prepare_payload();
+      return res;
+    };
+
+    http::response<http::string_body> server_error(boost::beast::string_view what) {
+      http::response<http::string_body> res{ http::status::internal_server_error, req_.version() };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.keep_alive(req_.keep_alive());
+      res.body() = "An error occurred: '" + what.to_string() + "'";
+      res.prepare_payload();
+      return res;
+    };
+
 protected:
     boost::asio::steady_timer timer_;
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
+    boost::asio::strand<boost::asio::io_context::executor_type> strand_;
     boost::beast::flat_buffer buffer_;
 
 public:
-    // Construct the session
     http_session(
         boost::asio::io_context& ioc,
-        boost::beast::flat_buffer buffer)
+        boost::beast::flat_buffer buffer,
+        Store& store)
         : queue_(*this)
         , timer_(ioc,
             (std::chrono::steady_clock::time_point::max)())
         , strand_(ioc.get_executor())
         , buffer_(std::move(buffer))
+        , store{ store }
     {
     }
 
@@ -722,6 +669,58 @@ public:
                     std::placeholders::_1)));
     }
 
+    void index() {
+      if (req_.method() == http::verb::head) {
+        http::response<http::empty_body> res{ http::status::ok, req_.version() };
+        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+        res.set(http::field::content_type, "text/html");
+        res.content_length(index_body.size());
+        res.keep_alive(req_.keep_alive());
+        return queue_(std::move(res));
+      }
+
+      http::response<http::string_body> res{
+        std::piecewise_construct,
+        std::make_tuple(index_body),
+        std::make_tuple(http::status::ok, req_.version()) };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.content_length(index_body.size());
+      res.keep_alive(req_.keep_alive());
+      return queue_(std::move(res));
+    }
+
+    void dns() {
+      auto queries = store.dns_requests();
+      std::string body = std::to_string(queries.size());
+      if (req_.method() == http::verb::head) {
+        http::response<http::empty_body> res{ http::status::ok, req_.version() };
+        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+        res.set(http::field::content_type, "text/html");
+        res.content_length(body.size());
+        res.keep_alive(req_.keep_alive());
+        return queue_(std::move(res));
+      }
+
+      http::response<http::string_body> res{
+        std::piecewise_construct,
+        std::make_tuple(body),
+        std::make_tuple(http::status::ok, req_.version()) };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.content_length(body.size());
+      res.keep_alive(req_.keep_alive());
+      return queue_(std::move(res));
+    }
+
+    void handle_request() {
+      // Make sure we can handle the method
+      if (req_.method() != http::verb::get && req_.method() != http::verb::head)
+        return queue_(bad_request("Unknown HTTP-method"));
+      if (req_.target() == "/") return index();
+      if (req_.target() == "/dns") return dns();
+    }
+
     void
     on_read(boost::system::error_code ec)
     {
@@ -746,7 +745,7 @@ public:
         }
 
         // Send the response
-        handle_request(std::move(req_), queue_);
+        handle_request();
 
         // If we aren't at the queue limit, try to pipeline another request
         if(! queue_.is_full())
@@ -796,7 +795,8 @@ public:
         Store& store)
         : http_session<plain_http_session>(
             socket.get_executor().context(),
-            std::move(buffer))
+            std::move(buffer),
+            store)
         , socket_(std::move(socket))
         , strand_(socket_.get_executor())
         , store{ store }
@@ -869,7 +869,8 @@ public:
         Store& store)
         : http_session<ssl_http_session>(
             socket.get_executor().context(),
-            std::move(buffer))
+            std::move(buffer),
+            store)
         , stream_(std::move(socket), ctx)
         , strand_(stream_.get_executor())
         , store{ store }
