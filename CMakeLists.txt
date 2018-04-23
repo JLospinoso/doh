@@ -14,6 +14,7 @@ IF(WIN32)
   set(LIBM_LIBS "")
 ELSE()
   set(LIBM_LIBS m)
+  message("[+] Found libm: " ${LIBM_LIBS})
 ENDIF(WIN32)
 
 # OpenSSL stuff here
