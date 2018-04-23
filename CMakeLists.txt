@@ -11,10 +11,10 @@ IF(WIN32)
   SET(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /bigobj")
   SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /bigobj")
   SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /bigobj")
-  set(LIBM_LIBS "")
+  set(SQLITE_LIBS "")
 ELSE()
-  set(LIBM_LIBS m)
-  message("[+] Found libm: " ${LIBM_LIBS})
+  set(SQLITE_LIBS dl)
+  message("[ ] non-Windows, SQLite deps added: " ${SQLITE_LIBS})
 ENDIF(WIN32)
 
 # OpenSSL stuff here
@@ -73,5 +73,5 @@ add_executable(doh main.cpp)
 add_executable(doh_test test_main.cpp OptionsTest.cpp)
 
 # Linkage
-target_link_libraries(doh dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${LIBM_LIBS})
-target_link_libraries(doh_test dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${LIBM_LIBS})
+target_link_libraries(doh dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${SQLITE_LIBS})
+target_link_libraries(doh_test dohlib sqlite ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${SQLITE_LIBS})
