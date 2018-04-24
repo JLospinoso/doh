@@ -26,6 +26,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "Serialize.h"
 
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
@@ -691,12 +692,12 @@ public:
     }
 
     void dns() {
-      auto queries = store.dns_requests();
-      std::string body = std::to_string(queries.size()); //TODO: JSON
+      const auto queries = store.dns_requests();
+      auto body = serialize(queries); 
       if (req_.method() == http::verb::head) {
         http::response<http::empty_body> res{ http::status::ok, req_.version() };
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
+        res.set(http::field::content_type, "application/json");
         res.content_length(body.size());
         res.keep_alive(req_.keep_alive());
         return queue_(std::move(res));
@@ -707,7 +708,7 @@ public:
         std::make_tuple(body),
         std::make_tuple(http::status::ok, req_.version()) };
       res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-      res.set(http::field::content_type, "text/html");
+      res.set(http::field::content_type, "application/json");
       res.content_length(body.size());
       res.keep_alive(req_.keep_alive());
       return queue_(std::move(res));

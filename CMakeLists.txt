@@ -57,6 +57,7 @@ add_library(dohlib
   IpAddress.h
   json.hpp
   SocksServer.h SocksServer.cpp
+  Serialize.h Serialize.cpp
   Store.h Store.cpp
   Options.cpp Options.h
   WebServer.h WebServer.cpp
