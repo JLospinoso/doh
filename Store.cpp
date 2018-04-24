@@ -14,7 +14,7 @@ namespace {
     return result;
   }
   const auto create_dns_request_table =
-R"(CREATE TABLE DNS_REQUEST(
+R"(CREATE TABLE IF NOT EXISTS DNS_REQUEST(
     ID                INTEGER           PRIMARY KEY AUTOINCREMENT,
     CLIENT            TEXT              NOT NULL,
     CLIENT_PORT       SMALLINT          NOT NULL,
@@ -22,12 +22,12 @@ R"(CREATE TABLE DNS_REQUEST(
     HOST              TEXT              NOT NULL,
     HOST_PORT         SMALLINT          NOT NULL,
     HOST_NAME         TEXT              NOT NULL,
-    TIMESTAMP         DATETIME          DEFAULT CURRENT_TIMESTAMP
+    TIME              TEXT              DEFAULT CURRENT_TIMESTAMP NOT NULL
 ))";
   const auto prepare_dns_request_insertion = 
     "INSERT INTO DNS_REQUEST (CLIENT, CLIENT_PORT, CLIENT_NAME, HOST, HOST_PORT, HOST_NAME) VALUES (?, ?, ?, ?, ?, ?)";
   const auto prepare_dns_request_retrieval = 
-    "SELECT TIMESTAMP, CLIENT, CLIENT_PORT, CLIENT_NAME, HOST, HOST_PORT, HOST_NAME FROM DNS_REQUEST ORDER BY TIMESTAMP DESC LIMIT ?";
+    "SELECT * FROM DNS_REQUEST ORDER BY TIME DESC LIMIT ?";
 
   struct ResetGuard {
     ResetGuard(sqlite3_stmt* statement) : statement{statement} {}
@@ -88,7 +88,7 @@ void Store::register_dnsquery(const string& client, unsigned short client_port, 
   unique_lock<mutex> lock{ rw_mutex };
   ResetGuard resetter{ insert_dns_request };
   const auto client_name = name(client, client_port);
-  const auto host_name = name(client, client_port);
+  const auto host_name = name(host, host_port);
   cout << "[+] " << client_name << " queries " << host_name << endl;
   if (sqlite3_bind_text(insert_dns_request, 1, client.c_str(), client.size(), nullptr) != SQLITE_OK) {
     cout << "[-] SQL statement binding failed for client " << client << endl;
@@ -134,7 +134,8 @@ std::vector<DnsRequestEntry> Store::dns_requests(size_t number) {
     cout << "[-] SQL statement binding failed for limit " << number << endl;
     return results;
   }
-  while(sqlite3_step(retrieve_dns_request) == SQLITE_ROW) {
+  auto db_status = sqlite3_step(retrieve_dns_request);
+  while(db_status == SQLITE_ROW) {
     DnsRequestEntry entry;
     //  (TIMESTAMP, CLIENT, CLIENT_PORT, CLIENT_NAME, HOST, HOST_PORT, HOST_NAME)
     const auto client_cstr = sqlite3_column_text(retrieve_dns_request, 1);
@@ -147,13 +148,18 @@ std::vector<DnsRequestEntry> Store::dns_requests(size_t number) {
     entry.host_port = static_cast<unsigned short>(sqlite3_column_int(retrieve_dns_request, 5));
     const auto host_name_cstr = sqlite3_column_text(retrieve_dns_request, 6);
     entry.host_name = reinterpret_cast<const char*>(host_name_cstr);
-    // TODO: const auto time_cstr = sqlite3_column_text(retrieve_dns_request, 7);
-    // entry.time = reinterpret_cast<const char*>(time_cstr);
+    const auto time_cstr = sqlite3_column_text(retrieve_dns_request, 7);
+    entry.time = reinterpret_cast<const char*>(time_cstr);
     results.emplace_back(move(entry));
+    db_status = sqlite3_step(retrieve_dns_request);
   }
-  if (sqlite3_step(retrieve_dns_request) != SQLITE_DONE) {
-    cout << "[-] Insert DNS request failed." << endl;
-    return results;
+  switch (db_status) {
+  case SQLITE_DONE:
+    break;
+  case SQLITE_BUSY:
+    cerr << "[-] Error retrieving DNS queries, database busy." << endl;
+  default:
+    cerr << "[-] Error retrieving DNS queries, SQLite Code: " << db_status << endl;
   }
   return results;
 }
