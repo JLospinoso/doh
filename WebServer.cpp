@@ -691,9 +691,7 @@ public:
       return queue_(std::move(res));
     }
 
-    void dns() {
-      const auto queries = store.dns_requests();
-      auto body = serialize(queries); 
+    void json_response(std::string body) {
       if (req_.method() == http::verb::head) {
         http::response<http::empty_body> res{ http::status::ok, req_.version() };
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
@@ -715,11 +713,14 @@ public:
     }
 
     void handle_request() {
-      // Make sure we can handle the method
       if (req_.method() != http::verb::get && req_.method() != http::verb::head)
         return queue_(bad_request("Unknown HTTP-method"));
       if (req_.target() == "/") return index();
-      if (req_.target() == "/dns") return dns();
+      if (req_.target() == "/dns") return json_response(serialize(store.dns_requests()));
+      if (req_.target() == "/connections") return json_response(serialize(store.connections()));
+      if (req_.target() == "/requests") return json_response(serialize(store.requests()));
+      if (req_.target() == "/netflows") return json_response(serialize(store.netflows()));
+      return queue_(bad_request("Not found."));
     }
 
     void
