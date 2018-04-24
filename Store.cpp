@@ -129,6 +129,7 @@ std::vector<DnsRequestEntry> Store::dns_requests(size_t number) {
   unique_lock<mutex> lock{ rw_mutex };
   std::vector<DnsRequestEntry> results;
   results.reserve(number);
+  ResetGuard resetter{ retrieve_dns_request };
   if (sqlite3_bind_int(retrieve_dns_request, 1, number) != SQLITE_OK) {
     cout << "[-] SQL statement binding failed for limit " << number << endl;
     return results;
@@ -136,18 +137,18 @@ std::vector<DnsRequestEntry> Store::dns_requests(size_t number) {
   while(sqlite3_step(retrieve_dns_request) == SQLITE_ROW) {
     DnsRequestEntry entry;
     //  (TIMESTAMP, CLIENT, CLIENT_PORT, CLIENT_NAME, HOST, HOST_PORT, HOST_NAME)
-    const auto time_cstr = sqlite3_column_text(retrieve_dns_request, 1);
-    entry.time = reinterpret_cast<const char*>(time_cstr);
-    const auto client_cstr = sqlite3_column_text(retrieve_dns_request, 2);
+    const auto client_cstr = sqlite3_column_text(retrieve_dns_request, 1);
     entry.client = reinterpret_cast<const char*>(client_cstr);
-    entry.client_port = static_cast<unsigned short>(sqlite3_column_int(retrieve_dns_request, 3));
-    const auto client_name_cstr = sqlite3_column_text(retrieve_dns_request, 4);
+    entry.client_port = static_cast<unsigned short>(sqlite3_column_int(retrieve_dns_request, 2));
+    const auto client_name_cstr = sqlite3_column_text(retrieve_dns_request, 3);
     entry.client_name = reinterpret_cast<const char*>(client_name_cstr);
-    const auto host_cstr = sqlite3_column_text(retrieve_dns_request, 5);
+    const auto host_cstr = sqlite3_column_text(retrieve_dns_request, 4);
     entry.host = reinterpret_cast<const char*>(host_cstr);
-    entry.host_port = static_cast<unsigned short>(sqlite3_column_int(retrieve_dns_request, 6));
-    const auto host_name_cstr = sqlite3_column_text(retrieve_dns_request, 7);
-    entry.client_name = reinterpret_cast<const char*>(host_name_cstr);
+    entry.host_port = static_cast<unsigned short>(sqlite3_column_int(retrieve_dns_request, 5));
+    const auto host_name_cstr = sqlite3_column_text(retrieve_dns_request, 6);
+    entry.host_name = reinterpret_cast<const char*>(host_name_cstr);
+    // TODO: const auto time_cstr = sqlite3_column_text(retrieve_dns_request, 7);
+    // entry.time = reinterpret_cast<const char*>(time_cstr);
     results.emplace_back(move(entry));
   }
   if (sqlite3_step(retrieve_dns_request) != SQLITE_DONE) {

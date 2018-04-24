@@ -692,7 +692,7 @@ public:
 
     void dns() {
       auto queries = store.dns_requests();
-      std::string body = std::to_string(queries.size());
+      std::string body = std::to_string(queries.size()); //TODO: JSON
       if (req_.method() == http::verb::head) {
         http::response<http::empty_body> res{ http::status::ok, req_.version() };
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
