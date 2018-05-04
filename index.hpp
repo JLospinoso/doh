@@ -84,7 +84,8 @@ const std::string index_body{ R"(
         }, {
             greetings: 'doh',
             name: 'doh_terminal',
-            prompt: '# '
+            prompt: '# ',
+            height: 600
         });
         const urlText = $("#urltext");
         urlText.val(url);

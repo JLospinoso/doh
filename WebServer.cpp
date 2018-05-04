@@ -26,94 +26,13 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <iostream>
+#include "Serialize.h"
 
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
 namespace http = boost::beast::http;            // from <boost/beast/http.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
-
-// This function produces an HTTP response for the given
-// request. The type of the response object depends on the
-// contents of the request, so the interface requires the
-// caller to pass a generic lambda for receiving the response.
-template<
-    class Body, class Allocator,
-    class Send>
-void
-handle_request(
-    http::request<Body, http::basic_fields<Allocator>>&& req,
-    Send&& send)
-{
-    // Returns a bad request response
-    auto const bad_request =
-    [&req](boost::beast::string_view why)
-    {
-        http::response<http::string_body> res{http::status::bad_request, req.version()};
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = why.to_string();
-        res.prepare_payload();
-        return res;
-    };
-
-    // Returns a not found response
-    auto const not_found =
-    [&req](boost::beast::string_view target)
-    {
-        http::response<http::string_body> res{http::status::not_found, req.version()};
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = "The resource '" + target.to_string() + "' was not found.";
-        res.prepare_payload();
-        return res;
-    };
-
-    // Returns a server error response
-    auto const server_error =
-    [&req](boost::beast::string_view what)
-    {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = "An error occurred: '" + what.to_string() + "'";
-        res.prepare_payload();
-        return res;
-    };
-
-    // Make sure we can handle the method
-    if( req.method() != http::verb::get &&
-        req.method() != http::verb::head)
-        return send(bad_request("Unknown HTTP-method"));
-
-    if (req.target() != "/") return send(bad_request("Illegal request-target"));
-
-    // Respond to HEAD request
-    if(req.method() == http::verb::head) {
-        http::response<http::empty_body> res{http::status::ok, req.version()};
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "text/html");
-        res.content_length(index_body.size());
-        res.keep_alive(req.keep_alive());
-        return send(std::move(res));
-    }
-    //TODO: Do stuff with store
-  
-    // Respond to GET request
-    http::response<http::string_body> res{
-        std::piecewise_construct,
-        std::make_tuple(index_body),
-        std::make_tuple(http::status::ok, req.version())};
-    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(http::field::content_type, "text/html");
-    res.content_length(index_body.size());
-    res.keep_alive(req.keep_alive());
-    return send(std::move(res));
-}
-
-//------------------------------------------------------------------------------
 
 // Report a failure
 void
@@ -122,39 +41,17 @@ fail(boost::system::error_code ec, char const* what)
     std::cerr << what << ": " << ec.message() << "\n";
 }
 
-//------------------------------------------------------------------------------
-
-// Echoes back all received WebSocket messages.
-// This uses the Curiously Recurring Template Pattern so that
-// the same code works with both SSL streams and regular sockets.
-template<class Derived>
-class websocket_session
-{
-    // Access the derived class, this is part of
-    // the Curiously Recurring Template Pattern idiom.
-    Derived&
-    derived()
-    {
-        return static_cast<Derived&>(*this);
-    }
-
+// Handles a plain WebSocket connection
+struct plain_websocket_session : std::enable_shared_from_this<plain_websocket_session> {
+    websocket::stream<tcp::socket> ws_;
+    bool close_ = false;
+    size_t callback_id;
+    WebBroker& web_broker;
     boost::beast::multi_buffer buffer_;
     char ping_state_ = 0;
 
-protected:
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
+    boost::asio::strand<boost::asio::io_context::executor_type> strand_;
     boost::asio::steady_timer timer_;
-
-public:
-    // Construct the session
-    explicit
-    websocket_session(boost::asio::io_context& ioc)
-        : strand_(ioc.get_executor())
-        , timer_(ioc,
-            (std::chrono::steady_clock::time_point::max)())
-    {
-    }
 
     // Start the asynchronous operation
     template<class Body, class Allocator>
@@ -163,9 +60,9 @@ public:
     {
         // Set the control callback. This will be called
         // on every incoming ping, pong, and close frame.
-        derived().ws().control_callback(
+        ws_.control_callback(
             std::bind(
-                &websocket_session::on_control_callback,
+                &plain_websocket_session::on_control_callback,
                 this,
                 std::placeholders::_1,
                 std::placeholders::_2));
@@ -174,14 +71,18 @@ public:
         timer_.expires_after(std::chrono::seconds(15));
 
         // Accept the websocket handshake
-        derived().ws().async_accept(
+        ws_.async_accept(
             req,
             boost::asio::bind_executor(
                 strand_,
                 std::bind(
-                    &websocket_session::on_accept,
-                    derived().shared_from_this(),
+                    &plain_websocket_session::on_accept,
+                    shared_from_this(),
                     std::placeholders::_1)));
+    }
+
+    void write(const std::string& x) {
+      ws_.write(boost::asio::buffer(x));
     }
 
     void
@@ -210,7 +111,7 @@ public:
         {
             // If this is the first time the timer expired,
             // send a ping to see if the other end is there.
-            if(derived().ws().is_open() && ping_state_ == 0)
+            if(ws_.is_open() && ping_state_ == 0)
             {
                 // Note that we are sending a ping
                 ping_state_ = 1;
@@ -219,12 +120,12 @@ public:
                 timer_.expires_after(std::chrono::seconds(15));
 
                 // Now send the ping
-                derived().ws().async_ping({},
+                ws_.async_ping({},
                     boost::asio::bind_executor(
                         strand_,
                         std::bind(
-                            &websocket_session::on_ping,
-                            derived().shared_from_this(),
+                            &plain_websocket_session::on_ping,
+                            shared_from_this(),
                             std::placeholders::_1)));
             }
             else
@@ -233,7 +134,7 @@ public:
                 // or we sent a ping and it never completed or
                 // we never got back a control frame, so close.
 
-                derived().do_timeout();
+                do_timeout();
                 return;
             }
         }
@@ -243,8 +144,8 @@ public:
             boost::asio::bind_executor(
                 strand_,
                 std::bind(
-                    &websocket_session::on_timer,
-                    derived().shared_from_this(),
+                    &plain_websocket_session::on_timer,
+                    shared_from_this(),
                     std::placeholders::_1)));
     }
 
@@ -299,13 +200,13 @@ public:
     do_read()
     {
         // Read a message into our buffer
-        derived().ws().async_read(
+        ws_.async_read(
             buffer_,
             boost::asio::bind_executor(
                 strand_,
                 std::bind(
-                    &websocket_session::on_read,
-                    derived().shared_from_this(),
+                    &plain_websocket_session::on_read,
+                    shared_from_this(),
                     std::placeholders::_1,
                     std::placeholders::_2)));
     }
@@ -332,14 +233,14 @@ public:
         activity();
 
         // Echo the message
-        derived().ws().text(derived().ws().got_text());
-        derived().ws().async_write(
+        ws_.text(ws_.got_text());
+        ws_.async_write(
             buffer_.data(),
             boost::asio::bind_executor(
                 strand_,
                 std::bind(
-                    &websocket_session::on_write,
-                    derived().shared_from_this(),
+                    &plain_websocket_session::on_write,
+                    shared_from_this(),
                     std::placeholders::_1,
                     std::placeholders::_2)));
     }
@@ -364,27 +265,18 @@ public:
         // Do another read
         do_read();
     }
-};
-
-// Handles a plain WebSocket connection
-class plain_websocket_session
-    : public websocket_session<plain_websocket_session>
-    , public std::enable_shared_from_this<plain_websocket_session>
-{
-    websocket::stream<tcp::socket> ws_;
-    bool close_ = false;
-
-public:
-    // Create the session
-    explicit
-    plain_websocket_session(tcp::socket socket)
-        : websocket_session<plain_websocket_session>(
-            socket.get_executor().context())
-        , ws_(std::move(socket))
-    {
+    explicit plain_websocket_session(tcp::socket socket, WebBroker& web_broker)
+      :  strand_(socket.get_executor())
+        , timer_(socket.get_executor().context(), (std::chrono::steady_clock::time_point::max)()),
+        ws_{ std::move(socket) },
+        web_broker{ web_broker },
+        callback_id{ web_broker.register_callback([&](const std::string& x){ write(x); }) }{
     }
 
-    // Called by the base class
+    ~plain_websocket_session() {
+      web_broker.unregister_callback(callback_id);
+    }
+
     websocket::stream<tcp::socket>&
     ws()
     {
@@ -440,21 +332,6 @@ public:
     }
 };
 
-template<class Body, class Allocator>
-void
-make_websocket_session(
-    tcp::socket socket,
-    http::request<Body, http::basic_fields<Allocator>> req)
-{
-    std::make_shared<plain_websocket_session>(
-        std::move(socket))->run(std::move(req));
-}
-
-//------------------------------------------------------------------------------
-
-// Handles an HTTP server connection.
-// This uses the Curiously Recurring Template Pattern so that
-// the same code works with both SSL streams and regular sockets.
 template<class Derived>
 class http_session
 {
@@ -558,24 +435,56 @@ class http_session
                 (*items_.front())();
         }
     };
-
+    Store& store;
+    WebBroker& web_broker;
     http::request<http::string_body> req_;
     queue queue_;
 
+    http::response<http::string_body> bad_request(boost::beast::string_view why) {
+      http::response<http::string_body> res{ http::status::bad_request, req_.version() };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.keep_alive(req_.keep_alive());
+      res.body() = why.to_string();
+      res.prepare_payload();
+      return res;
+    };
+
+    http::response<http::string_body> not_found(boost::beast::string_view target) {
+      http::response<http::string_body> res{ http::status::not_found, req_.version() };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.keep_alive(req_.keep_alive());
+      res.body() = "The resource '" + target.to_string() + "' was not found.";
+      res.prepare_payload();
+      return res;
+    };
+
+    http::response<http::string_body> server_error(boost::beast::string_view what) {
+      http::response<http::string_body> res{ http::status::internal_server_error, req_.version() };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.keep_alive(req_.keep_alive());
+      res.body() = "An error occurred: '" + what.to_string() + "'";
+      res.prepare_payload();
+      return res;
+    };
+
 protected:
     boost::asio::steady_timer timer_;
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
+    boost::asio::strand<boost::asio::io_context::executor_type> strand_;
     boost::beast::flat_buffer buffer_;
 
 public:
-    // Construct the session
     http_session(
         boost::asio::io_context& ioc,
-        boost::beast::flat_buffer buffer)
-        : queue_(*this)
-        , timer_(ioc,
-            (std::chrono::steady_clock::time_point::max)())
+        boost::beast::flat_buffer buffer,
+        Store& store,
+        WebBroker& web_broker)
+        : store{ store }
+        , web_broker{ web_broker }
+        , queue_(*this)
+        , timer_(ioc, (std::chrono::steady_clock::time_point::max)())
         , strand_(ioc.get_executor())
         , buffer_(std::move(buffer))
     {
@@ -625,6 +534,59 @@ public:
                     std::placeholders::_1)));
     }
 
+    void index() {
+      if (req_.method() == http::verb::head) {
+        http::response<http::empty_body> res{ http::status::ok, req_.version() };
+        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+        res.set(http::field::content_type, "text/html");
+        res.content_length(index_body.size());
+        res.keep_alive(req_.keep_alive());
+        return queue_(std::move(res));
+      }
+
+      http::response<http::string_body> res{
+        std::piecewise_construct,
+        std::make_tuple(index_body),
+        std::make_tuple(http::status::ok, req_.version()) };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "text/html");
+      res.content_length(index_body.size());
+      res.keep_alive(req_.keep_alive());
+      return queue_(std::move(res));
+    }
+
+    void json_response(std::string body) {
+      if (req_.method() == http::verb::head) {
+        http::response<http::empty_body> res{ http::status::ok, req_.version() };
+        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+        res.set(http::field::content_type, "application/json");
+        res.content_length(body.size());
+        res.keep_alive(req_.keep_alive());
+        return queue_(std::move(res));
+      }
+
+      http::response<http::string_body> res{
+        std::piecewise_construct,
+        std::make_tuple(body),
+        std::make_tuple(http::status::ok, req_.version()) };
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "application/json");
+      res.content_length(body.size());
+      res.keep_alive(req_.keep_alive());
+      return queue_(std::move(res));
+    }
+
+    void handle_request() {
+      if (req_.method() != http::verb::get && req_.method() != http::verb::head)
+        return queue_(bad_request("Unknown HTTP-method"));
+      if (req_.target() == "/") return index();
+      if (req_.target() == "/dns") return json_response(serialize(store.dns_requests()));
+      if (req_.target() == "/connections") return json_response(serialize(store.connections()));
+      if (req_.target() == "/requests") return json_response(serialize(store.requests()));
+      if (req_.target() == "/netflows") return json_response(serialize(store.netflows()));
+      return queue_(bad_request("Not found."));
+    }
+
     void
     on_read(boost::system::error_code ec)
     {
@@ -640,16 +602,13 @@ public:
             return fail(ec, "read");
 
         // See if it is a WebSocket Upgrade
-        if(websocket::is_upgrade(req_))
-        {
-            // Transfer the stream to a new WebSocket session
-            return make_websocket_session(
-                derived().release_stream(),
-                std::move(req_));
+        if(websocket::is_upgrade(req_)) {
+          std::make_shared<plain_websocket_session>(derived().release_stream(), web_broker)->run(std::move(req_));
+          return;
         }
 
         // Send the response
-        handle_request(std::move(req_), queue_);
+        handle_request();
 
         // If we aren't at the queue limit, try to pipeline another request
         if(! queue_.is_full())
@@ -701,7 +660,8 @@ public:
         WebBroker& web_broker)
         : http_session<plain_http_session>(
             socket.get_executor().context(),
-            std::move(buffer))
+            std::move(buffer),
+            store, web_broker)
         , socket_(std::move(socket))
         , strand_(socket_.get_executor())
         , store{ store }

@@ -27,7 +27,7 @@ int main(int argc, const char** argv) {
     auto dns_store = std::make_shared<DnsStore>();
     WebBroker web_broker;
     Store store{ options.get_db_path(), dns_store, web_broker };
-    SocksServer server{ store,
+    SocksServer server{ store, web_broker,
       io_context, options.get_address(), options.get_socks_port(), 
       make_shared<DnsResolver>(store, dns_store, io_context, block_list, host_list, options.is_dnssec()),
       options.get_user(), options.get_password(),

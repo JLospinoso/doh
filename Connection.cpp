@@ -32,10 +32,10 @@ namespace {
   }
 }
 
-Connection::Connection(Store& store, boost::asio::io_context& io_context, 
+Connection::Connection(Store& store, WebBroker& web_broker, boost::asio::io_context& io_context, 
   tcp::socket socket, std::shared_ptr<DnsResolver> dns_resolver,
   string_view user, string_view password, bool https_only) 
-  : store{ store },
+  : store{ store }, web_broker{ web_broker },
     authenticate{ !user.empty() || !password.empty() }, https_only{ https_only },
     user { user },
     password{ password }, socket{ move(socket) }, 
@@ -45,6 +45,7 @@ Connection::Connection(Store& store, boost::asio::io_context& io_context,
 void Connection::start() {
   const auto remote_ep = socket.remote_endpoint();
   store.register_connection(remote_ep.address().to_string(), remote_ep.port());
+  web_broker.register_connection(remote_ep.address().to_string(), remote_ep.port());
   get_client_version();
 }
 
@@ -243,17 +244,7 @@ void Connection::get_connection_request() {
       }
   });
 }
-/*
-void Connection::log_request() const {
-  cout << "[ ] Request: ";
-  if(!domain.empty()) {
-    cout << domain;
-  } else {
-    cout << ip_address.str();
-  }
-  cout << ":" << port << endl;
-}
-*/
+
 void Connection::get_ipv4_request() {
   boost::asio::async_read(socket, boost::asio::buffer(data, 4), 
     [self=this->shared_from_this()](err ec, size_t length) {
@@ -309,8 +300,11 @@ void Connection::get_port() {
 
 void Connection::resolve_domain() {
   const auto remote_ep = socket.remote_endpoint();
-  store.register_connection(remote_ep.address().to_string(), remote_ep.port());
   store.register_dnsquery(
+    remote_ep.address().to_string(), remote_ep.port(),
+    domain, port
+  );
+  web_broker.register_dnsquery(
     remote_ep.address().to_string(), remote_ep.port(),
     domain, port
   );
@@ -327,13 +321,21 @@ void Connection::resolve_domain() {
 }
 
 void Connection::connect() {
-  if (https_only && port != 443) {
+  const auto remote_ep = socket.remote_endpoint();
+  if (https_only && port != 443) { //tODO: entropy heuristic?
     send_unsupported();
     cerr << "[-] Blocking non-HTTPS destination" << endl;
+     web_broker.register_block(
+      remote_ep.address().to_string(), remote_ep.port(),
+      ip_address.str(), port,
+       "Unencrypted traffic"
+    );
     return;
   }
-  const auto remote_ep = socket.remote_endpoint();
-  store.register_connection(remote_ep.address().to_string(), remote_ep.port());
+  web_broker.register_request(
+    remote_ep.address().to_string(), remote_ep.port(),
+    ip_address.str(), port
+  );
   store.register_request(
     remote_ep.address().to_string(), remote_ep.port(),
     ip_address.str(), port
@@ -386,6 +388,11 @@ void Connection::service_client() {
             client_ep.address().to_string(), client_ep.port(),
             length
           );
+          self->web_broker.register_netflow(
+            upstream_ep.address().to_string(), upstream_ep.port(),
+            client_ep.address().to_string(), client_ep.port(),
+            length
+          );
           self->service_client();
     });
   });
@@ -401,6 +408,11 @@ void Connection::service_upstream() {
           const auto upstream_ep = self->upstream_socket.remote_endpoint();
           const auto client_ep = self->socket.remote_endpoint();
           self->store.register_netflow(
+            client_ep.address().to_string(), client_ep.port(),
+            upstream_ep.address().to_string(), upstream_ep.port(),
+            length
+          );
+          self->web_broker.register_netflow(
             client_ep.address().to_string(), client_ep.port(),
             upstream_ep.address().to_string(), upstream_ep.port(),
             length
