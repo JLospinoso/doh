@@ -440,93 +440,6 @@ public:
     }
 };
 
-// Handles an SSL WebSocket connection
-class ssl_websocket_session
-    : public websocket_session<ssl_websocket_session>
-    , public std::enable_shared_from_this<ssl_websocket_session>
-{
-    websocket::stream<ssl_stream<tcp::socket>> ws_;
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
-    bool eof_ = false;
-
-public:
-    // Create the http_session
-    explicit
-    ssl_websocket_session(ssl_stream<tcp::socket> stream)
-        : websocket_session<ssl_websocket_session>(
-            stream.get_executor().context())
-        , ws_(std::move(stream))
-        , strand_(ws_.get_executor())
-    {
-    }
-
-    // Called by the base class
-    websocket::stream<ssl_stream<tcp::socket>>&
-    ws()
-    {
-        return ws_;
-    }
-
-    // Start the asynchronous operation
-    template<class Body, class Allocator>
-    void
-    run(http::request<Body, http::basic_fields<Allocator>> req)
-    {
-        // Run the timer. The timer is operated
-        // continuously, this simplifies the code.
-        on_timer({});
-
-        // Accept the WebSocket upgrade request
-        do_accept(std::move(req));
-    }
-
-    void
-    do_eof()
-    {
-        eof_ = true;
-
-        // Set the timer
-        timer_.expires_after(std::chrono::seconds(15));
-
-        // Perform the SSL shutdown
-        ws_.next_layer().async_shutdown(
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &ssl_websocket_session::on_shutdown,
-                    shared_from_this(),
-                    std::placeholders::_1)));
-    }
-
-    void
-    on_shutdown(boost::system::error_code ec)
-    {
-        // Happens when the shutdown times out
-        if(ec == boost::asio::error::operation_aborted)
-            return;
-
-        if(ec)
-            return fail(ec, "shutdown");
-
-        // At this point the connection is closed gracefully
-    }
-
-    void
-    do_timeout()
-    {
-        // If this is true it means we timed out performing the shutdown
-        if(eof_)
-            return;
-
-        // Start the timer again
-        timer_.expires_at(
-            (std::chrono::steady_clock::time_point::max)());
-        on_timer({});
-        do_eof();
-    }
-};
-
 template<class Body, class Allocator>
 void
 make_websocket_session(
@@ -535,16 +448,6 @@ make_websocket_session(
 {
     std::make_shared<plain_websocket_session>(
         std::move(socket))->run(std::move(req));
-}
-
-template<class Body, class Allocator>
-void
-make_websocket_session(
-    ssl_stream<tcp::socket> stream,
-    http::request<Body, http::basic_fields<Allocator>> req)
-{
-    std::make_shared<ssl_websocket_session>(
-        std::move(stream))->run(std::move(req));
 }
 
 //------------------------------------------------------------------------------
@@ -788,18 +691,21 @@ class plain_http_session
     boost::asio::strand<
         boost::asio::io_context::executor_type> strand_;
     Store& store;
+    WebBroker& web_broker;
 public:
     // Create the http_session
     plain_http_session(
         tcp::socket socket,
         boost::beast::flat_buffer buffer,
-        Store& store)
+        Store& store,
+        WebBroker& web_broker)
         : http_session<plain_http_session>(
             socket.get_executor().context(),
             std::move(buffer))
         , socket_(std::move(socket))
         , strand_(socket_.get_executor())
         , store{ store }
+        , web_broker{ web_broker }
     {
     }
 
@@ -849,137 +755,6 @@ public:
     }
 };
 
-// Handles an SSL HTTP connection
-class ssl_http_session
-    : public http_session<ssl_http_session>
-    , public std::enable_shared_from_this<ssl_http_session>
-{
-    ssl_stream<tcp::socket> stream_;
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
-    bool eof_ = false;
-    Store& store;
-
-public:
-    // Create the http_session
-    ssl_http_session(
-        tcp::socket socket,
-        ssl::context& ctx,
-        boost::beast::flat_buffer buffer,
-        Store& store)
-        : http_session<ssl_http_session>(
-            socket.get_executor().context(),
-            std::move(buffer))
-        , stream_(std::move(socket), ctx)
-        , strand_(stream_.get_executor())
-        , store{ store }
-    {
-    }
-
-    // Called by the base class
-    ssl_stream<tcp::socket>&
-    stream()
-    {
-        return stream_;
-    }
-
-    // Called by the base class
-    ssl_stream<tcp::socket>
-    release_stream()
-    {
-        return std::move(stream_);
-    }
-
-    // Start the asynchronous operation
-    void
-    run()
-    {
-        // Run the timer. The timer is operated
-        // continuously, this simplifies the code.
-        on_timer({});
-
-        // Set the timer
-        timer_.expires_after(std::chrono::seconds(15));
-
-        // Perform the SSL handshake
-        // Note, this is the buffered version of the handshake.
-        stream_.async_handshake(
-            ssl::stream_base::server,
-            buffer_.data(),
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &ssl_http_session::on_handshake,
-                    shared_from_this(),
-                    std::placeholders::_1,
-                    std::placeholders::_2)));
-    }
-    void
-    on_handshake(
-        boost::system::error_code ec,
-        std::size_t bytes_used)
-    {
-        // Happens when the handshake times out
-        if(ec == boost::asio::error::operation_aborted)
-            return;
-
-        if(ec)
-            return fail(ec, "handshake");
-
-        // Consume the portion of the buffer used by the handshake
-        buffer_.consume(bytes_used);
-
-        do_read();
-    }
-
-    void
-    do_eof()
-    {
-        eof_ = true;
-
-        // Set the timer
-        timer_.expires_after(std::chrono::seconds(15));
-
-        // Perform the SSL shutdown
-        stream_.async_shutdown(
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &ssl_http_session::on_shutdown,
-                    shared_from_this(),
-                    std::placeholders::_1)));
-    }
-
-    void
-    on_shutdown(boost::system::error_code ec)
-    {
-        // Happens when the shutdown times out
-        if(ec == boost::asio::error::operation_aborted)
-            return;
-
-        if(ec)
-            return fail(ec, "shutdown");
-
-        // At this point the connection is closed gracefully
-    }
-
-    void
-    do_timeout()
-    {
-        // If this is true it means we timed out performing the shutdown
-        if(eof_)
-            return;
-
-        // Start the timer again
-        timer_.expires_at(
-            (std::chrono::steady_clock::time_point::max)());
-        on_timer({});
-        do_eof();
-    }
-};
-
-//------------------------------------------------------------------------------
-
 // Detects SSL handshakes
 class detect_session : public std::enable_shared_from_this<detect_session>
 {
@@ -989,16 +764,19 @@ class detect_session : public std::enable_shared_from_this<detect_session>
         boost::asio::io_context::executor_type> strand_;
     boost::beast::flat_buffer buffer_;
     Store& store;
+    WebBroker& web_broker;
 public:
     explicit
     detect_session(
         tcp::socket socket,
         ssl::context& ctx,
-        Store& store)
+        Store& store,
+        WebBroker& web_broker)
         : socket_(std::move(socket))
         , ctx_(ctx)
         , strand_(socket_.get_executor())
         , store{ store }
+        , web_broker{ web_broker }
     {
     }
 
@@ -1025,22 +803,11 @@ public:
         if(ec)
             return fail(ec, "detect");
 
-        if(result)
-        {
-            // Launch SSL session
-            std::make_shared<ssl_http_session>(
-                std::move(socket_),
-                ctx_,
-                std::move(buffer_),
-                store)->run();
-            return;
-        }
-
-        // Launch plain session
         std::make_shared<plain_http_session>(
             std::move(socket_),
             std::move(buffer_),
-            store)->run();
+            store,
+            web_broker)->run();
     }
 };
 
@@ -1051,16 +818,19 @@ class listener : public std::enable_shared_from_this<listener>
     tcp::acceptor acceptor_;
     tcp::socket socket_;
     Store& store;
+    WebBroker& web_broker;
 public:
     listener(
         boost::asio::io_context& ioc,
         ssl::context& ctx,
         tcp::endpoint endpoint,
-        Store& store)
+        Store& store,
+        WebBroker& web_broker)
         : ctx_(ctx)
         , acceptor_(ioc)
         , socket_(ioc)
         , store{ store }
+        , web_broker{ web_broker }
     {
         boost::system::error_code ec;
 
@@ -1131,7 +901,8 @@ public:
             std::make_shared<detect_session>(
                 std::move(socket_),
                 ctx_,
-                store)->run();
+                store,
+                web_broker)->run();
         }
 
         // Accept another connection
@@ -1139,8 +910,8 @@ public:
     }
 };
 
-WebServer::WebServer(Store& store, boost::asio::io_context& io_context, 
-    const std::string& address, uint16_t port) : store{ store } {
+WebServer::WebServer(Store& store, WebBroker& web_broker, boost::asio::io_context& io_context, 
+  const std::string& address, uint16_t port) : store{ store }, web_broker{ web_broker } {
   ssl::context ctx{ssl::context::sslv23};
   load_server_certificate(ctx);
   auto ip = boost::asio::ip::make_address(address);
@@ -1148,5 +919,6 @@ WebServer::WebServer(Store& store, boost::asio::io_context& io_context,
       io_context,
       ctx,
       tcp::endpoint{ip, port},
-      store)->run();
+      store,
+      web_broker)->run();
 }

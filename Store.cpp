@@ -41,8 +41,8 @@ R"(CREATE TABLE DNS_REQUEST(
   };
 }
 
-Store::Store(const std::string& db_path, shared_ptr<DnsStore> store) 
-  : dns_store{ move(store) } {
+Store::Store(const std::string& db_path, shared_ptr<DnsStore> store, WebBroker& web_broker) 
+  : dns_store{ move(store) }, web_broker{ web_broker } {
   const auto db_open_result = sqlite3_open(db_path.c_str(), &db);
   if (db_open_result) {
     const auto message = sqlite3_errmsg(db);
