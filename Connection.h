@@ -8,11 +8,12 @@
 #include "DnsResolver.h"
 #include "IpAddress.h"
 #include "Store.h"
+#include "WebBroker.h"
 
 constexpr size_t buffer_size = 1024 * 1024;
 
 struct Connection : std::enable_shared_from_this<Connection> {
-  Connection(Store& store,
+  Connection(Store& store, WebBroker& web_broker,
     boost::asio::io_context& io_context, boost::asio::ip::tcp::socket socket, 
     std::shared_ptr<DnsResolver> dns_resolver, std::string_view user, 
     std::string_view password, bool https_only);
@@ -55,4 +56,5 @@ private:
   std::shared_ptr<DnsResolver> dns_resolver;
   std::vector<boost::asio::ip::tcp::endpoint> endpoints;
   Store& store;
+  WebBroker& web_broker;
 };

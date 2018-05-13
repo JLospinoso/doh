@@ -84,8 +84,8 @@ const auto create_netflow_table =
   };
 }
 
-Store::Store(const std::string& db_path, shared_ptr<DnsStore> store) 
-  : dns_store{ move(store) } {
+Store::Store(const std::string& db_path, shared_ptr<DnsStore> store, WebBroker& web_broker) 
+  : dns_store{ move(store) }, web_broker{ web_broker } {
   const auto db_open_result = sqlite3_open(db_path.c_str(), &db);
   if (db_open_result) {
     const auto message = sqlite3_errmsg(db);
@@ -157,7 +157,6 @@ void Store::register_connection(const string& client, unsigned short port) {
   unique_lock<mutex> lock{ rw_mutex };
   ResetGuard resetter{ insert_connection };
   const auto client_name = name(client, port);
-  cout << "[+] Connection from " << client_name << endl;
   if (sqlite3_bind_text(insert_connection, 1, client.c_str(), client.size(), nullptr) != SQLITE_OK) {
     cout << "[-] SQL statement binding failed for client " << client << endl;
     return;
@@ -181,7 +180,6 @@ void Store::register_request(const string& client, unsigned short client_port, c
   ResetGuard resetter{ insert_request };
   const auto client_name = name(client, client_port);
   const auto host_name = name(host, host_port);
-  cout << "[+] " << client_name << " requests " << host_name << endl;
   if (sqlite3_bind_text(insert_request, 1, client.c_str(), client.size(), nullptr) != SQLITE_OK) {
     cout << "[-] SQL statement binding failed for client " << client << endl;
     return;
@@ -217,7 +215,6 @@ void Store::register_dnsquery(const string& client, unsigned short client_port, 
   ResetGuard resetter{ insert_dns_request };
   const auto client_name = name(client, client_port);
   const auto host_name = name(host, host_port);
-  cout << "[+] " << client_name << " queries " << host_name << endl;
   if (sqlite3_bind_text(insert_dns_request, 1, client.c_str(), client.size(), nullptr) != SQLITE_OK) {
     cout << "[-] SQL statement binding failed for client " << client << endl;
     return;
@@ -253,7 +250,6 @@ void Store::register_netflow(const string& client, unsigned short client_port, c
   ResetGuard resetter{ insert_netflow };
   const auto client_name = name(client, client_port);
   const auto host_name = name(host, host_port);
-  cout << "      " << client_name << " " << flow(bytes) << " " << host_name << endl;
   if (sqlite3_bind_text(insert_netflow, 1, client.c_str(), client.size(), nullptr) != SQLITE_OK) {
     cout << "[-] SQL statement binding failed for client " << client << endl;
     return;

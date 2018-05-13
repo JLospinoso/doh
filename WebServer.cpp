@@ -26,6 +26,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <iostream>
 #include "Serialize.h"
 
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
@@ -40,39 +41,17 @@ fail(boost::system::error_code ec, char const* what)
     std::cerr << what << ": " << ec.message() << "\n";
 }
 
-//------------------------------------------------------------------------------
-
-// Echoes back all received WebSocket messages.
-// This uses the Curiously Recurring Template Pattern so that
-// the same code works with both SSL streams and regular sockets.
-template<class Derived>
-class websocket_session
-{
-    // Access the derived class, this is part of
-    // the Curiously Recurring Template Pattern idiom.
-    Derived&
-    derived()
-    {
-        return static_cast<Derived&>(*this);
-    }
-
+// Handles a plain WebSocket connection
+struct plain_websocket_session : std::enable_shared_from_this<plain_websocket_session> {
+    websocket::stream<tcp::socket> ws_;
+    bool close_ = false;
+    size_t callback_id;
+    WebBroker& web_broker;
     boost::beast::multi_buffer buffer_;
     char ping_state_ = 0;
 
-protected:
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
+    boost::asio::strand<boost::asio::io_context::executor_type> strand_;
     boost::asio::steady_timer timer_;
-
-public:
-    // Construct the session
-    explicit
-    websocket_session(boost::asio::io_context& ioc)
-        : strand_(ioc.get_executor())
-        , timer_(ioc,
-            (std::chrono::steady_clock::time_point::max)())
-    {
-    }
 
     // Start the asynchronous operation
     template<class Body, class Allocator>
@@ -81,9 +60,9 @@ public:
     {
         // Set the control callback. This will be called
         // on every incoming ping, pong, and close frame.
-        derived().ws().control_callback(
+        ws_.control_callback(
             std::bind(
-                &websocket_session::on_control_callback,
+                &plain_websocket_session::on_control_callback,
                 this,
                 std::placeholders::_1,
                 std::placeholders::_2));
@@ -92,14 +71,18 @@ public:
         timer_.expires_after(std::chrono::seconds(15));
 
         // Accept the websocket handshake
-        derived().ws().async_accept(
+        ws_.async_accept(
             req,
             boost::asio::bind_executor(
                 strand_,
                 std::bind(
-                    &websocket_session::on_accept,
-                    derived().shared_from_this(),
+                    &plain_websocket_session::on_accept,
+                    shared_from_this(),
                     std::placeholders::_1)));
+    }
+
+    void write(const std::string& x) {
+      ws_.write(boost::asio::buffer(x));
     }
 
     void
@@ -128,7 +111,7 @@ public:
         {
             // If this is the first time the timer expired,
             // send a ping to see if the other end is there.
-            if(derived().ws().is_open() && ping_state_ == 0)
+            if(ws_.is_open() && ping_state_ == 0)
             {
                 // Note that we are sending a ping
                 ping_state_ = 1;
@@ -137,12 +120,12 @@ public:
                 timer_.expires_after(std::chrono::seconds(15));
 
                 // Now send the ping
-                derived().ws().async_ping({},
+                ws_.async_ping({},
                     boost::asio::bind_executor(
                         strand_,
                         std::bind(
-                            &websocket_session::on_ping,
-                            derived().shared_from_this(),
+                            &plain_websocket_session::on_ping,
+                            shared_from_this(),
                             std::placeholders::_1)));
             }
             else
@@ -151,7 +134,7 @@ public:
                 // or we sent a ping and it never completed or
                 // we never got back a control frame, so close.
 
-                derived().do_timeout();
+                do_timeout();
                 return;
             }
         }
@@ -161,8 +144,8 @@ public:
             boost::asio::bind_executor(
                 strand_,
                 std::bind(
-                    &websocket_session::on_timer,
-                    derived().shared_from_this(),
+                    &plain_websocket_session::on_timer,
+                    shared_from_this(),
                     std::placeholders::_1)));
     }
 
@@ -217,13 +200,13 @@ public:
     do_read()
     {
         // Read a message into our buffer
-        derived().ws().async_read(
+        ws_.async_read(
             buffer_,
             boost::asio::bind_executor(
                 strand_,
                 std::bind(
-                    &websocket_session::on_read,
-                    derived().shared_from_this(),
+                    &plain_websocket_session::on_read,
+                    shared_from_this(),
                     std::placeholders::_1,
                     std::placeholders::_2)));
     }
@@ -250,14 +233,14 @@ public:
         activity();
 
         // Echo the message
-        derived().ws().text(derived().ws().got_text());
-        derived().ws().async_write(
+        ws_.text(ws_.got_text());
+        ws_.async_write(
             buffer_.data(),
             boost::asio::bind_executor(
                 strand_,
                 std::bind(
-                    &websocket_session::on_write,
-                    derived().shared_from_this(),
+                    &plain_websocket_session::on_write,
+                    shared_from_this(),
                     std::placeholders::_1,
                     std::placeholders::_2)));
     }
@@ -282,27 +265,18 @@ public:
         // Do another read
         do_read();
     }
-};
-
-// Handles a plain WebSocket connection
-class plain_websocket_session
-    : public websocket_session<plain_websocket_session>
-    , public std::enable_shared_from_this<plain_websocket_session>
-{
-    websocket::stream<tcp::socket> ws_;
-    bool close_ = false;
-
-public:
-    // Create the session
-    explicit
-    plain_websocket_session(tcp::socket socket)
-        : websocket_session<plain_websocket_session>(
-            socket.get_executor().context())
-        , ws_(std::move(socket))
-    {
+    explicit plain_websocket_session(tcp::socket socket, WebBroker& web_broker)
+      :  strand_(socket.get_executor())
+        , timer_(socket.get_executor().context(), (std::chrono::steady_clock::time_point::max)()),
+        ws_{ std::move(socket) },
+        web_broker{ web_broker },
+        callback_id{ web_broker.register_callback([&](const std::string& x){ write(x); }) }{
     }
 
-    // Called by the base class
+    ~plain_websocket_session() {
+      web_broker.unregister_callback(callback_id);
+    }
+
     websocket::stream<tcp::socket>&
     ws()
     {
@@ -358,118 +332,6 @@ public:
     }
 };
 
-// Handles an SSL WebSocket connection
-class ssl_websocket_session
-    : public websocket_session<ssl_websocket_session>
-    , public std::enable_shared_from_this<ssl_websocket_session>
-{
-    websocket::stream<ssl_stream<tcp::socket>> ws_;
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
-    bool eof_ = false;
-
-public:
-    // Create the http_session
-    explicit
-    ssl_websocket_session(ssl_stream<tcp::socket> stream)
-        : websocket_session<ssl_websocket_session>(
-            stream.get_executor().context())
-        , ws_(std::move(stream))
-        , strand_(ws_.get_executor())
-    {
-    }
-
-    // Called by the base class
-    websocket::stream<ssl_stream<tcp::socket>>&
-    ws()
-    {
-        return ws_;
-    }
-
-    // Start the asynchronous operation
-    template<class Body, class Allocator>
-    void
-    run(http::request<Body, http::basic_fields<Allocator>> req)
-    {
-        // Run the timer. The timer is operated
-        // continuously, this simplifies the code.
-        on_timer({});
-
-        // Accept the WebSocket upgrade request
-        do_accept(std::move(req));
-    }
-
-    void
-    do_eof()
-    {
-        eof_ = true;
-
-        // Set the timer
-        timer_.expires_after(std::chrono::seconds(15));
-
-        // Perform the SSL shutdown
-        ws_.next_layer().async_shutdown(
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &ssl_websocket_session::on_shutdown,
-                    shared_from_this(),
-                    std::placeholders::_1)));
-    }
-
-    void
-    on_shutdown(boost::system::error_code ec)
-    {
-        // Happens when the shutdown times out
-        if(ec == boost::asio::error::operation_aborted)
-            return;
-
-        if(ec)
-            return fail(ec, "shutdown");
-
-        // At this point the connection is closed gracefully
-    }
-
-    void
-    do_timeout()
-    {
-        // If this is true it means we timed out performing the shutdown
-        if(eof_)
-            return;
-
-        // Start the timer again
-        timer_.expires_at(
-            (std::chrono::steady_clock::time_point::max)());
-        on_timer({});
-        do_eof();
-    }
-};
-
-template<class Body, class Allocator>
-void
-make_websocket_session(
-    tcp::socket socket,
-    http::request<Body, http::basic_fields<Allocator>> req)
-{
-    std::make_shared<plain_websocket_session>(
-        std::move(socket))->run(std::move(req));
-}
-
-template<class Body, class Allocator>
-void
-make_websocket_session(
-    ssl_stream<tcp::socket> stream,
-    http::request<Body, http::basic_fields<Allocator>> req)
-{
-    std::make_shared<ssl_websocket_session>(
-        std::move(stream))->run(std::move(req));
-}
-
-//------------------------------------------------------------------------------
-
-// Handles an HTTP server connection.
-// This uses the Curiously Recurring Template Pattern so that
-// the same code works with both SSL streams and regular sockets.
 template<class Derived>
 class http_session
 {
@@ -574,6 +436,7 @@ class http_session
         }
     };
     Store& store;
+    WebBroker& web_broker;
     http::request<http::string_body> req_;
     queue queue_;
 
@@ -616,13 +479,14 @@ public:
     http_session(
         boost::asio::io_context& ioc,
         boost::beast::flat_buffer buffer,
-        Store& store)
-        : queue_(*this)
-        , timer_(ioc,
-            (std::chrono::steady_clock::time_point::max)())
+        Store& store,
+        WebBroker& web_broker)
+        : store{ store }
+        , web_broker{ web_broker }
+        , queue_(*this)
+        , timer_(ioc, (std::chrono::steady_clock::time_point::max)())
         , strand_(ioc.get_executor())
         , buffer_(std::move(buffer))
-        , store{ store }
     {
     }
 
@@ -738,12 +602,9 @@ public:
             return fail(ec, "read");
 
         // See if it is a WebSocket Upgrade
-        if(websocket::is_upgrade(req_))
-        {
-            // Transfer the stream to a new WebSocket session
-            return make_websocket_session(
-                derived().release_stream(),
-                std::move(req_));
+        if(websocket::is_upgrade(req_)) {
+          std::make_shared<plain_websocket_session>(derived().release_stream(), web_broker)->run(std::move(req_));
+          return;
         }
 
         // Send the response
@@ -789,19 +650,22 @@ class plain_http_session
     boost::asio::strand<
         boost::asio::io_context::executor_type> strand_;
     Store& store;
+    WebBroker& web_broker;
 public:
     // Create the http_session
     plain_http_session(
         tcp::socket socket,
         boost::beast::flat_buffer buffer,
-        Store& store)
+        Store& store,
+        WebBroker& web_broker)
         : http_session<plain_http_session>(
             socket.get_executor().context(),
             std::move(buffer),
-            store)
+            store, web_broker)
         , socket_(std::move(socket))
         , strand_(socket_.get_executor())
         , store{ store }
+        , web_broker{ web_broker }
     {
     }
 
@@ -851,138 +715,6 @@ public:
     }
 };
 
-// Handles an SSL HTTP connection
-class ssl_http_session
-    : public http_session<ssl_http_session>
-    , public std::enable_shared_from_this<ssl_http_session>
-{
-    ssl_stream<tcp::socket> stream_;
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
-    bool eof_ = false;
-    Store& store;
-
-public:
-    // Create the http_session
-    ssl_http_session(
-        tcp::socket socket,
-        ssl::context& ctx,
-        boost::beast::flat_buffer buffer,
-        Store& store)
-        : http_session<ssl_http_session>(
-            socket.get_executor().context(),
-            std::move(buffer),
-            store)
-        , stream_(std::move(socket), ctx)
-        , strand_(stream_.get_executor())
-        , store{ store }
-    {
-    }
-
-    // Called by the base class
-    ssl_stream<tcp::socket>&
-    stream()
-    {
-        return stream_;
-    }
-
-    // Called by the base class
-    ssl_stream<tcp::socket>
-    release_stream()
-    {
-        return std::move(stream_);
-    }
-
-    // Start the asynchronous operation
-    void
-    run()
-    {
-        // Run the timer. The timer is operated
-        // continuously, this simplifies the code.
-        on_timer({});
-
-        // Set the timer
-        timer_.expires_after(std::chrono::seconds(15));
-
-        // Perform the SSL handshake
-        // Note, this is the buffered version of the handshake.
-        stream_.async_handshake(
-            ssl::stream_base::server,
-            buffer_.data(),
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &ssl_http_session::on_handshake,
-                    shared_from_this(),
-                    std::placeholders::_1,
-                    std::placeholders::_2)));
-    }
-    void
-    on_handshake(
-        boost::system::error_code ec,
-        std::size_t bytes_used)
-    {
-        // Happens when the handshake times out
-        if(ec == boost::asio::error::operation_aborted)
-            return;
-
-        if(ec)
-            return fail(ec, "handshake");
-
-        // Consume the portion of the buffer used by the handshake
-        buffer_.consume(bytes_used);
-
-        do_read();
-    }
-
-    void
-    do_eof()
-    {
-        eof_ = true;
-
-        // Set the timer
-        timer_.expires_after(std::chrono::seconds(15));
-
-        // Perform the SSL shutdown
-        stream_.async_shutdown(
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &ssl_http_session::on_shutdown,
-                    shared_from_this(),
-                    std::placeholders::_1)));
-    }
-
-    void
-    on_shutdown(boost::system::error_code ec)
-    {
-        // Happens when the shutdown times out
-        if(ec == boost::asio::error::operation_aborted)
-            return;
-
-        if(ec)
-            return fail(ec, "shutdown");
-
-        // At this point the connection is closed gracefully
-    }
-
-    void
-    do_timeout()
-    {
-        // If this is true it means we timed out performing the shutdown
-        if(eof_)
-            return;
-
-        // Start the timer again
-        timer_.expires_at(
-            (std::chrono::steady_clock::time_point::max)());
-        on_timer({});
-        do_eof();
-    }
-};
-
-//------------------------------------------------------------------------------
-
 // Detects SSL handshakes
 class detect_session : public std::enable_shared_from_this<detect_session>
 {
@@ -992,16 +724,19 @@ class detect_session : public std::enable_shared_from_this<detect_session>
         boost::asio::io_context::executor_type> strand_;
     boost::beast::flat_buffer buffer_;
     Store& store;
+    WebBroker& web_broker;
 public:
     explicit
     detect_session(
         tcp::socket socket,
         ssl::context& ctx,
-        Store& store)
+        Store& store,
+        WebBroker& web_broker)
         : socket_(std::move(socket))
         , ctx_(ctx)
         , strand_(socket_.get_executor())
         , store{ store }
+        , web_broker{ web_broker }
     {
     }
 
@@ -1028,22 +763,11 @@ public:
         if(ec)
             return fail(ec, "detect");
 
-        if(result)
-        {
-            // Launch SSL session
-            std::make_shared<ssl_http_session>(
-                std::move(socket_),
-                ctx_,
-                std::move(buffer_),
-                store)->run();
-            return;
-        }
-
-        // Launch plain session
         std::make_shared<plain_http_session>(
             std::move(socket_),
             std::move(buffer_),
-            store)->run();
+            store,
+            web_broker)->run();
     }
 };
 
@@ -1054,16 +778,19 @@ class listener : public std::enable_shared_from_this<listener>
     tcp::acceptor acceptor_;
     tcp::socket socket_;
     Store& store;
+    WebBroker& web_broker;
 public:
     listener(
         boost::asio::io_context& ioc,
         ssl::context& ctx,
         tcp::endpoint endpoint,
-        Store& store)
+        Store& store,
+        WebBroker& web_broker)
         : ctx_(ctx)
         , acceptor_(ioc)
         , socket_(ioc)
         , store{ store }
+        , web_broker{ web_broker }
     {
         boost::system::error_code ec;
 
@@ -1134,7 +861,8 @@ public:
             std::make_shared<detect_session>(
                 std::move(socket_),
                 ctx_,
-                store)->run();
+                store,
+                web_broker)->run();
         }
 
         // Accept another connection
@@ -1142,8 +870,8 @@ public:
     }
 };
 
-WebServer::WebServer(Store& store, boost::asio::io_context& io_context, 
-    const std::string& address, uint16_t port) : store{ store } {
+WebServer::WebServer(Store& store, WebBroker& web_broker, boost::asio::io_context& io_context, 
+  const std::string& address, uint16_t port) : store{ store }, web_broker{ web_broker } {
   ssl::context ctx{ssl::context::sslv23};
   load_server_certificate(ctx);
   auto ip = boost::asio::ip::make_address(address);
@@ -1151,5 +879,6 @@ WebServer::WebServer(Store& store, boost::asio::io_context& io_context,
       io_context,
       ctx,
       tcp::endpoint{ip, port},
-      store)->run();
+      store,
+      web_broker)->run();
 }

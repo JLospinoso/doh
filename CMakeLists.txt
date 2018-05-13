@@ -61,6 +61,7 @@ add_library(dohlib
   Store.h Store.cpp
   Options.cpp Options.h
   WebServer.h WebServer.cpp
+  WebBroker.h WebBroker.cpp
   index.hpp ssl_stream.hpp root_certificates.hpp detect_ssl.hpp server_certificate.hpp ssl_stream.hpp
   sqlite3.h
   sqlite3ext.h)

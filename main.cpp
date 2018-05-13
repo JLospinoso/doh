@@ -25,15 +25,16 @@ int main(int argc, const char** argv) {
     HostList host_list{ options.get_host_dir() };
     boost::asio::io_context io_context;
     auto dns_store = std::make_shared<DnsStore>();
-    Store store{ options.get_db_path(), dns_store };
-    SocksServer server{ store,
+    WebBroker web_broker;
+    Store store{ options.get_db_path(), dns_store, web_broker };
+    SocksServer server{ store, web_broker,
       io_context, options.get_address(), options.get_socks_port(), 
       make_shared<DnsResolver>(store, dns_store, io_context, block_list, host_list, options.is_dnssec()),
       options.get_user(), options.get_password(),
       options.is_tls_only() 
     };
-
-    WebServer web_server{ store, io_context, options.get_address(), options.get_web_port() };
+    
+    WebServer web_server{ store, web_broker, io_context, options.get_address(), options.get_web_port() };
 
     boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
     signals.async_wait(

@@ -5,6 +5,7 @@
 #include <mutex>
 #include "sqlite3.h"
 #include <vector>
+#include "WebBroker.h"
 
 struct DnsRequestEntry {
   std::string time;
@@ -45,7 +46,7 @@ struct NetflowEntry {
 };
 
 struct Store {
-  Store(const std::string& db_path, std::shared_ptr<DnsStore> dns_store);
+  Store(const std::string& db_path, std::shared_ptr<DnsStore> dns_store, WebBroker& web_broker);
   ~Store();
   void register_connection(const std::string& client, unsigned short port);
   void register_request(const std::string& client, unsigned short port, const std::string& upstream_ip, unsigned short upstream_port);
@@ -64,4 +65,5 @@ private:
                *insert_request, *retrieve_request,
                *insert_netflow, *retrieve_netflow,
                *insert_connection, *retrieve_connection;
+  WebBroker& web_broker;
 };
