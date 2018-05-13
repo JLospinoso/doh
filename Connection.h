@@ -18,6 +18,7 @@ struct Connection : std::enable_shared_from_this<Connection> {
     std::string_view password, bool https_only);
   void start();
 private:
+  bool data_is_unencrypted();
   void get_client_version();
   void get_n_authentication_methods();
   void get_authentication_methods(uint8_t command_code);
@@ -42,7 +43,6 @@ private:
   void send_failed_upstream();
   void service_client();
   void service_upstream();
-  //void log_request() const;
   void connect();
   const bool authenticate;
   const bool https_only;

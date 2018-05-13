@@ -327,11 +327,6 @@ void Connection::resolve_domain() {
 }
 
 void Connection::connect() {
-  if (https_only && port != 443) {
-    send_unsupported();
-    cerr << "[-] Blocking non-HTTPS destination" << endl;
-    return;
-  }
   const auto remote_ep = socket.remote_endpoint();
   store.register_connection(remote_ep.address().to_string(), remote_ep.port());
   store.register_request(
@@ -372,10 +367,20 @@ void Connection::send_success() {
   });
 }
 
+bool Connection::data_is_unencrypted() {
+  std::array<size_t, 256> frequencies;
+}
+
 void Connection::service_client() {
   socket.async_read_some(buffer(data),
     [self=this->shared_from_this()](err ec, size_t length) {
       if(ec) return;
+      if (self->https_only && self->data_is_unencrypted()) {
+        self->send_unsupported();
+        cerr << "[-] Blocking unencrypted out-bound traffic. Offending text: " 
+             << string(self->data.begin(), self->data.end()) << endl;
+        return;
+      }
       self->upstream_socket.async_write_some(buffer(self->data, length),
         [self=self->shared_from_this()](err ec, size_t length) {
           if(ec) return;
@@ -384,7 +389,7 @@ void Connection::service_client() {
           self->store.register_netflow(
             upstream_ep.address().to_string(), upstream_ep.port(),
             client_ep.address().to_string(), client_ep.port(),
-            length
+            -1 * length
           );
           self->service_client();
     });

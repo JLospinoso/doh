@@ -3,8 +3,6 @@
 #include <cstdint>
 #include "DnsResolver.h"
 #include <memory>
-#include "BlockList.h"
-#include "HostList.h"
 #include "Store.h"
 
 struct SocksServer {
