@@ -21,7 +21,7 @@ ENDIF(WIN32)
 find_package(OpenSSL)
 
 if(OPENSSL_FOUND)
-  message("[+] Found OpenSSL")
+  message("[+] Found OpenSSL. Include: " ${OPENSSL_INCLUDE_DIR} " Libraries: " ${OPENSSL_LIBRARIES})
   include_directories(${OPENSSL_INCLUDE_DIR})
 endif()
 

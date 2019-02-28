@@ -6,11 +6,12 @@
 using namespace std;
 using tcp = boost::asio::ip::tcp;
 
-SocksServer::SocksServer(Store& store,
+SocksServer::SocksServer(Store& store, WebBroker& web_broker,
   boost::asio::io_context& io_context, const string& address, 
   unsigned short port, shared_ptr<DnsResolver> dns_resolver,
   string user, string password, bool tls_only)
   : store{ store },
+    web_broker{ web_broker },
     io_context{ io_context },
     tls_only { tls_only },
     user{ move(user) },
@@ -27,7 +28,7 @@ void SocksServer::do_accept() {
         cerr << "[-] Accept error: " << ec << endl;
         return;
       }
-      make_shared<Connection>(store, io_context, move(socket), dns_resolver, user, password, tls_only)->start();
+      make_shared<Connection>(store, web_broker, io_context, move(socket), dns_resolver, user, password, tls_only)->start();
       do_accept();
   });
 }

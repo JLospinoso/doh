@@ -32,10 +32,11 @@ namespace {
   }
 }
 
-Connection::Connection(Store& store, boost::asio::io_context& io_context, 
+Connection::Connection(Store& store, WebBroker& web_broker, boost::asio::io_context& io_context,
   tcp::socket socket, std::shared_ptr<DnsResolver> dns_resolver,
   string_view user, string_view password, bool https_only) 
   : store{ store },
+    web_broker{ web_broker },
     authenticate{ !user.empty() || !password.empty() }, https_only{ https_only },
     user { user },
     password{ password }, socket{ move(socket) }, 
@@ -369,6 +370,7 @@ void Connection::send_success() {
 
 bool Connection::data_is_unencrypted() {
   std::array<size_t, 256> frequencies;
+  return false;
 }
 
 void Connection::service_client() {
@@ -377,8 +379,7 @@ void Connection::service_client() {
       if(ec) return;
       if (self->https_only && self->data_is_unencrypted()) {
         self->send_unsupported();
-        cerr << "[-] Blocking unencrypted out-bound traffic. Offending text: " 
-             << string(self->data.begin(), self->data.end()) << endl;
+        cerr << "[-] Blocking unencrypted out-bound traffic.\n";
         return;
       }
       self->upstream_socket.async_write_some(buffer(self->data, length),
